@@ -1,10 +1,15 @@
 from fastapi import FastAPI
 
 from backend.config import settings
+from backend.core.exception_handlers import register_exception_handlers
+from backend.core.responses import Result
+from backend.services.user.router import router as user_router
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
+register_exception_handlers(app)
+app.include_router(user_router)
 
 
 @app.get("/api/v1/health")
-async def health():
-    return {"code": 200, "message": "success", "data": f"{settings.app_name} is running"}
+async def health() -> Result[str]:
+    return Result.ok(f"{settings.app_name} is running")
