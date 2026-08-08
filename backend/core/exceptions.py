@@ -19,6 +19,8 @@ class ErrorCode(IntEnum):
     SKILL_NOT_FOUND = 3001
     SKILL_NAME_EXISTS = 3004
 
+    # 查不到讨论时用错误码
+    DISCUSSION_NOT_FOUND = 4001
 
 class BusinessException(Exception):
     def __init__(self, error_code: ErrorCode, detail: str = ""):
