@@ -1,0 +1,48 @@
+# 讨论模块的 HTTP 接口：创建 / 列表 / 详情
+
+from fastapi import APIRouter, Depends, Query
+
+from backend.core.responses import Result
+from backend.deps import require_user
+from backend.services.discussion.schemas import DiscussionCreateRequest, DiscussionResponse
+from backend.services.discussion.service import DiscussionService, get_discussion_service
+
+router = APIRouter(prefix="/api/v1/discussions", tags=["discussion"])
+
+
+@router.post("")
+async def create_discussion(
+    req: DiscussionCreateRequest,
+    user_id: str = Depends(require_user),
+    svc: DiscussionService = Depends(get_discussion_service),
+) -> Result[DiscussionResponse]:
+    result = await svc.create_discussion(user_id, req)
+    return Result.ok(result)
+
+
+@router.get("")
+async def list_discussions(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50),
+    user_id: str = Depends(require_user),
+    svc: DiscussionService = Depends(get_discussion_service),
+) -> Result:
+    items, total, has_more = await svc.list_discussions(user_id, page, page_size)
+    return Result.ok(
+        {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "has_more": has_more,
+        }
+    )
+
+
+@router.get("/{discussion_id}")
+async def get_discussion(
+    discussion_id: str,
+    svc: DiscussionService = Depends(get_discussion_service),
+) -> Result[DiscussionResponse]:
+    result = await svc.get_discussion(discussion_id)
+    return Result.ok(result)
