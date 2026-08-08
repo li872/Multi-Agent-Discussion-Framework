@@ -15,6 +15,10 @@ class ErrorCode(IntEnum):
     USER_NOT_FOUND = 2003
     WRONG_PASSWORD = 2004
 
+    # ── 角色模块 3000-3999 ──
+    SKILL_NOT_FOUND = 3001
+    SKILL_NAME_EXISTS = 3004
+
 
 class BusinessException(Exception):
     def __init__(self, error_code: ErrorCode, detail: str = ""):
