@@ -1,0 +1,27 @@
+# 接口请求/响应的数据格式
+
+from pydantic import BaseModel, Field
+
+
+class DiscussionCreateRequest(BaseModel):
+    topic: str = Field(min_length=1, max_length=256)
+    character_ids: list[str] = Field(min_length=1, max_length=10)
+    duration: int = Field(ge=60, le=3600, default=600)
+
+
+class AgentInfo(BaseModel):
+    skill_id: str
+    name: str
+
+
+class DiscussionResponse(BaseModel):
+    id: str
+    owner_id: str
+    topic: str
+    duration: int
+    status: str
+    started_at: str | None = None
+    ended_at: str | None = None
+    created_at: str
+    updated_at: str
+    agents: list[AgentInfo] = []
