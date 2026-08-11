@@ -8,7 +8,7 @@ import uuid
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_engine.discussion.mini_orchestrator import run_mini_discussion
+from agent_engine.discussion.multi_orchestrator import AgentSpec, run_multi_discussion
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
 from backend.services.character.repository import CharacterRepository
@@ -70,19 +70,53 @@ class DiscussionService:
         agents = await self._get_agent_infos(disc.id)
         return self._to_response(disc, agents)
 
-    async def start_discussion(
-        self, owner_id: str, discussion_id: str
-    ) -> DiscussionResponse:
-        disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
-        if not disc:
-            raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
-        if str(disc.owner_id) != owner_id:
-            raise BusinessException(ErrorCode.FORBIDDEN, "Not your discussion")
-        if disc.status != "pending":
-            raise BusinessException(
-                ErrorCode.DISCUSSION_INVALID_STATUS,
-                f"Discussion status is {disc.status}, expected pending",
+async def start_discussion(
+    self, owner_id: str, discussion_id: str
+) -> DiscussionResponse:
+    disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
+    if not disc:
+        raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
+    if str(disc.owner_id) != owner_id:
+        raise BusinessException(ErrorCode.FORBIDDEN, "Not your discussion")
+    if disc.status != "pending":
+        raise BusinessException(
+            ErrorCode.DISCUSSION_INVALID_STATUS,
+            f"Discussion status is {disc.status}, expected pending",
+        )
+
+    agents_rows = await self.repo.get_agents(disc.id)
+    if not agents_rows:
+        raise BusinessException(ErrorCode.INVALID_PARAMS, "No agents")
+
+    specs: list[AgentSpec] = []
+    for row in agents_rows:
+        skill = await self.char_repo.find_by_id(row.skill_id)
+        if not skill:
+            continue
+        specs.append(
+            AgentSpec(
+                agent_id=skill.id,
+                agent_name=skill.name.replace("-perspective", ""),
+                skill_file_path=skill.file_path,
             )
+        )
+    if not specs:
+        raise BusinessException(ErrorCode.SKILL_NOT_FOUND, "No valid skills")
+
+    await self.repo.update_status(disc, "starting")
+
+    asyncio.create_task(
+        run_multi_discussion(
+            discussion_id=disc.id,
+            topic=disc.topic,
+            duration=disc.duration,
+            agents=specs,
+        )
+    )
+
+    disc = await self.repo.find_by_id(disc.id)
+    agents = await self._get_agent_infos(disc.id)
+    return self._to_response(disc, agents)
 
         agents_rows = await self.repo.get_agents(disc.id)
         if not agents_rows:
