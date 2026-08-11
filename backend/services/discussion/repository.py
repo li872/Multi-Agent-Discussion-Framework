@@ -1,12 +1,14 @@
 # 讨论相关的数据库读写
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.discussion import Discussion
 from backend.models.discussion_agent import DiscussionAgent
+from backend.models.discussion_message import DiscussionMessage
 
 
 class DiscussionRepository:
@@ -68,6 +70,65 @@ class DiscussionRepository:
         stmt = select(DiscussionAgent).where(
             DiscussionAgent.deleted_at.is_(None),
             DiscussionAgent.discussion_id == discussion_id,
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_status(
+        self,
+        disc: Discussion,
+        status: str,
+        *,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+    ) -> Discussion:
+        disc.status = status
+        if started_at is not None:
+            disc.started_at = started_at
+        if ended_at is not None:
+            disc.ended_at = ended_at
+        await self.session.commit()
+        await self.session.refresh(disc)
+        return disc
+
+    async def add_message(
+        self,
+        discussion_id: uuid.UUID,
+        *,
+        round_number: int,
+        message_type: str,
+        content: str,
+        agent_id: uuid.UUID | None = None,
+        agent_name: str | None = None,
+        confidence: float | None = None,
+    ) -> DiscussionMessage:
+        msg = DiscussionMessage(
+            discussion_id=discussion_id,
+            round_number=round_number,
+            message_type=message_type,
+            content=content,
+            agent_id=agent_id,
+            agent_name=agent_name,
+            confidence=confidence,
+        )
+        self.session.add(msg)
+        await self.session.commit()
+        await self.session.refresh(msg)
+        return msg
+
+    async def list_messages(
+        self, discussion_id: uuid.UUID
+    ) -> list[DiscussionMessage]:
+        stmt = (
+            select(DiscussionMessage)
+            .where(
+                DiscussionMessage.deleted_at.is_(None),
+                DiscussionMessage.discussion_id == discussion_id,
+            )
+            .order_by(
+                DiscussionMessage.round_number.asc(),
+                DiscussionMessage.created_at.asc(),
+            )
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

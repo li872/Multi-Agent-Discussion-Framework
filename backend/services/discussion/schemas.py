@@ -25,3 +25,14 @@ class DiscussionResponse(BaseModel):
     created_at: str
     updated_at: str
     agents: list[AgentInfo] = []
+
+class MessageResponse(BaseModel):
+    id: str
+    discussion_id: str
+    round_number: int
+    agent_id: str | None = None
+    agent_name: str | None = None
+    message_type: str
+    content: str
+    confidence: float | None = None
+    created_at: str
