@@ -1,10 +1,14 @@
-# 讨论模块的 HTTP 接口：创建 / 列表 / 详情
+# 讨论接口：创建 / 列表 / 详情 / 启动真编排 / 消息列表
 
 from fastapi import APIRouter, Depends, Query
 
 from backend.core.responses import Result
 from backend.deps import require_user
-from backend.services.discussion.schemas import DiscussionCreateRequest, DiscussionResponse
+from backend.services.discussion.schemas import (
+    DiscussionCreateRequest,
+    DiscussionResponse,
+    MessageResponse,
+)
 from backend.services.discussion.service import DiscussionService, get_discussion_service
 
 router = APIRouter(prefix="/api/v1/discussions", tags=["discussion"])
@@ -45,4 +49,23 @@ async def get_discussion(
     svc: DiscussionService = Depends(get_discussion_service),
 ) -> Result[DiscussionResponse]:
     result = await svc.get_discussion(discussion_id)
+    return Result.ok(result)
+
+
+@router.post("/{discussion_id}/start")
+async def start_discussion(
+    discussion_id: str,
+    user_id: str = Depends(require_user),
+    svc: DiscussionService = Depends(get_discussion_service),
+) -> Result[DiscussionResponse]:
+    result = await svc.start_discussion(user_id, discussion_id)
+    return Result.ok(result)
+
+
+@router.get("/{discussion_id}/messages")
+async def list_messages(
+    discussion_id: str,
+    svc: DiscussionService = Depends(get_discussion_service),
+) -> Result[list[MessageResponse]]:
+    result = await svc.list_messages(discussion_id)
     return Result.ok(result)

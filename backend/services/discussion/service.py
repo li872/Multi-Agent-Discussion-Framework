@@ -1,10 +1,14 @@
 # 创建讨论的业务逻辑：校验角色 → 写讨论 → 写参与角色（还不启动 Agent）
 
+# 讨论业务：创建 / 查询 / 启动最小真编排 / 消息列表
+
+import asyncio
 import uuid
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_engine.discussion.mini_orchestrator import run_mini_discussion
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
 from backend.services.character.repository import CharacterRepository
@@ -13,6 +17,7 @@ from backend.services.discussion.schemas import (
     AgentInfo,
     DiscussionCreateRequest,
     DiscussionResponse,
+    MessageResponse,
 )
 
 
@@ -64,6 +69,66 @@ class DiscussionService:
             raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
         agents = await self._get_agent_infos(disc.id)
         return self._to_response(disc, agents)
+
+    async def start_discussion(
+        self, owner_id: str, discussion_id: str
+    ) -> DiscussionResponse:
+        disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
+        if not disc:
+            raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
+        if str(disc.owner_id) != owner_id:
+            raise BusinessException(ErrorCode.FORBIDDEN, "Not your discussion")
+        if disc.status != "pending":
+            raise BusinessException(
+                ErrorCode.DISCUSSION_INVALID_STATUS,
+                f"Discussion status is {disc.status}, expected pending",
+            )
+
+        agents_rows = await self.repo.get_agents(disc.id)
+        if not agents_rows:
+            raise BusinessException(ErrorCode.INVALID_PARAMS, "No agents")
+
+        first_row = agents_rows[0]
+        skill = await self.char_repo.find_by_id(first_row.skill_id)
+        if not skill:
+            raise BusinessException(ErrorCode.SKILL_NOT_FOUND)
+
+        agent_name = skill.name.replace("-perspective", "")
+        await self.repo.update_status(disc, "starting")
+
+        asyncio.create_task(
+            run_mini_discussion(
+                discussion_id=disc.id,
+                topic=disc.topic,
+                agent_id=skill.id,
+                agent_name=agent_name,
+                skill_file_path=skill.file_path,
+            )
+        )
+
+        disc = await self.repo.find_by_id(disc.id)
+        agents = await self._get_agent_infos(disc.id)
+        return self._to_response(disc, agents)
+
+    async def list_messages(self, discussion_id: str) -> list[MessageResponse]:
+        disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
+        if not disc:
+            raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
+        rows = await self.repo.list_messages(disc.id)
+        return [
+            MessageResponse(
+                id=str(m.id),
+                discussion_id=str(m.discussion_id),
+                round_number=m.round_number,
+                agent_id=str(m.agent_id) if m.agent_id else None,
+                agent_name=m.agent_name,
+                message_type=m.message_type,
+                content=m.content,
+                confidence=m.confidence,
+                created_at=m.created_at.isoformat(),
+            )
+            for m in rows
+        ]
 
     async def _get_agent_infos(self, discussion_id: uuid.UUID) -> list[AgentInfo]:
         rows = await self.repo.get_agents(discussion_id)
