@@ -21,6 +21,7 @@ class ErrorCode(IntEnum):
 
     # 查不到讨论时用错误码
     DISCUSSION_NOT_FOUND = 4001
+    DISCUSSION_INVALID_STATUS = 4002
 
 class BusinessException(Exception):
     def __init__(self, error_code: ErrorCode, detail: str = ""):
