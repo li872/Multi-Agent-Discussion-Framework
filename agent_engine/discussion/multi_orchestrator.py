@@ -14,12 +14,40 @@ from dataclasses import dataclass
 from agent_engine.llm import get_chat_llm
 from backend.deps import async_session_factory
 from backend.models.base import utcnow
+from backend.models.discussion_message import DiscussionMessage
 from backend.services.character.file_manager import SKILLS_ROOT
 from backend.services.discussion.repository import DiscussionRepository
+from backend.services.realtime.publisher import publish_discussion_event
 
 logger = logging.getLogger(__name__)
 
 MAX_ROUNDS = 3  # 学习阶段上限，避免一次烧太多 token
+
+
+async def _publish_message(discussion_id: uuid.UUID, msg: DiscussionMessage) -> None:
+    await publish_discussion_event(
+        str(discussion_id),
+        "message",
+        {
+            "id": str(msg.id),
+            "discussion_id": str(msg.discussion_id),
+            "round_number": msg.round_number,
+            "agent_id": str(msg.agent_id) if msg.agent_id else None,
+            "agent_name": msg.agent_name,
+            "message_type": msg.message_type,
+            "content": msg.content,
+            "confidence": msg.confidence,
+            "created_at": msg.created_at.isoformat() if msg.created_at else "",
+        },
+    )
+
+
+async def _publish_status(discussion_id: uuid.UUID, status: str) -> None:
+    await publish_discussion_event(
+        str(discussion_id),
+        "status",
+        {"status": status},
+    )
 
 
 @dataclass
@@ -101,6 +129,7 @@ async def run_multi_discussion(
                 a.excerpt = _read_skill_excerpt(a.skill_file_path)
 
             await repo.update_status(disc, "running", started_at=utcnow())
+            await _publish_status(discussion_id, "running")
             host_llm = get_chat_llm(temperature=0.8, timeout=30)
             think_llm = get_chat_llm(temperature=0.3, timeout=20)
             speak_llm = get_chat_llm(temperature=0.8, timeout=30)
@@ -113,13 +142,14 @@ async def run_multi_discussion(
             )
             intro = (await host_llm.ainvoke(intro_prompt)).content
             intro_text = (intro if isinstance(intro, str) else str(intro)).strip()
-            await repo.add_message(
+            intro_msg = await repo.add_message(
                 discussion_id,
                 round_number=0,
                 message_type="host_intro",
                 content=intro_text,
                 agent_name="主持人",
             )
+            await _publish_message(discussion_id, intro_msg)
             transcript.append(("主持人", intro_text))
 
             started = time.time()
@@ -162,7 +192,7 @@ async def run_multi_discussion(
                 )
 
                 for d in decisions:
-                    await repo.add_message(
+                    think_msg = await repo.add_message(
                         discussion_id,
                         round_number=round_num,
                         message_type="agent_think",
@@ -174,6 +204,7 @@ async def run_multi_discussion(
                         agent_name=d.agent_name,
                         confidence=d.confidence,
                     )
+                    await _publish_message(discussion_id, think_msg)
 
                 winner, forced = _pick_speaker(decisions)
                 speaker = next(a for a in agents if a.agent_id == winner.agent_id)
@@ -188,7 +219,7 @@ async def run_multi_discussion(
                 )
                 speech = (await speak_llm.ainvoke(speak_prompt)).content
                 speech_text = (speech if isinstance(speech, str) else str(speech)).strip()
-                await repo.add_message(
+                speak_msg = await repo.add_message(
                     discussion_id,
                     round_number=round_num,
                     message_type="agent_speak",
@@ -197,6 +228,7 @@ async def run_multi_discussion(
                     agent_name=speaker.agent_name,
                     confidence=winner.confidence,
                 )
+                await _publish_message(discussion_id, speak_msg)
                 transcript.append((speaker.agent_name, speech_text))
 
             summary_prompt = (
@@ -206,19 +238,22 @@ async def run_multi_discussion(
             )
             summary = (await host_llm.ainvoke(summary_prompt)).content
             summary_text = (summary if isinstance(summary, str) else str(summary)).strip()
-            await repo.add_message(
+            summary_msg = await repo.add_message(
                 discussion_id,
                 round_number=round_num + 1,
                 message_type="host_summary",
                 content=summary_text,
                 agent_name="主持人",
             )
+            await _publish_message(discussion_id, summary_msg)
 
             disc = await repo.find_by_id(discussion_id)
             if disc:
                 await repo.update_status(disc, "completed", ended_at=utcnow())
+            await _publish_status(discussion_id, "completed")
         except Exception:
             logger.exception("multi discussion failed: %s", discussion_id)
             disc = await repo.find_by_id(discussion_id)
             if disc:
                 await repo.update_status(disc, "error", ended_at=utcnow())
+            await _publish_status(discussion_id, "error")

@@ -24,8 +24,9 @@ export default function DiscussionRoom() {
   const [messages, setMessages] = useState<Message[]>([])
   const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
+  const [live, setLive] = useState(false)
 
-  async function refresh() {
+  async function loadOnce() {
     if (!id) return
     const [dRes, mRes] = await Promise.all([
       api.get<ApiResult<Discussion>>(`/discussions/${id}`),
@@ -36,11 +37,43 @@ export default function DiscussionRoom() {
   }
 
   useEffect(() => {
-    refresh().catch(() => setError('加载讨论失败'))
-    const timer = setInterval(() => {
-      refresh().catch(() => {})
-    }, 3000)
-    return () => clearInterval(timer)
+    loadOnce().catch(() => setError('加载讨论失败'))
+  }, [id])
+
+  // SSE：有新消息立刻推到气泡，不再 3 秒轮询
+  useEffect(() => {
+    if (!id) return
+    const es = new EventSource(`/api/v1/discussions/${id}/stream`)
+    setLive(true)
+
+    es.addEventListener('message', (ev) => {
+      try {
+        const msg = JSON.parse(ev.data) as Message
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev
+          return [...prev, msg]
+        })
+      } catch {
+        // ignore bad payload
+      }
+    })
+
+    es.addEventListener('status', (ev) => {
+      try {
+        const data = JSON.parse(ev.data) as { status: string }
+        setDiscussion((d) => (d ? { ...d, status: data.status } : d))
+      } catch {
+        // ignore
+      }
+    })
+
+    es.onerror = () => setLive(false)
+    es.onopen = () => setLive(true)
+
+    return () => {
+      es.close()
+      setLive(false)
+    }
   }, [id])
 
   async function onStart() {
@@ -49,7 +82,7 @@ export default function DiscussionRoom() {
     setError('')
     try {
       await api.post(`/discussions/${id}/start`)
-      await refresh()
+      setDiscussion((d) => (d ? { ...d, status: 'running' } : d))
     } catch {
       setError('启动失败（可能已启动过，或后端报错）')
     } finally {
@@ -61,7 +94,10 @@ export default function DiscussionRoom() {
     <div className="page wide">
       <div className="row">
         <Link to="/discussions/new">← 新建讨论</Link>
-        <span className="status">状态：{discussion?.status || '…'}</span>
+        <span className="status">
+          状态：{discussion?.status || '…'}
+          {live ? ' · 实时' : ' · 未连接'}
+        </span>
       </div>
       <h1>{discussion?.topic || '讨论室'}</h1>
       {discussion?.status === 'pending' && (
