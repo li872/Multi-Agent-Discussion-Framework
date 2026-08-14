@@ -1,4 +1,4 @@
-# 讨论业务：创建 / 查询 / 启动多轮编排 / 消息列表
+# 讨论业务：创建 / 查询 / 启动多轮编排 / 消息列表 / 用户介入
 
 import asyncio
 import uuid
@@ -17,6 +17,8 @@ from backend.services.discussion.schemas import (
     DiscussionResponse,
     MessageResponse,
 )
+from backend.services.realtime.publisher import publish_discussion_event
+from backend.services.user.repository import UserRepository
 
 
 class DiscussionService:
@@ -135,6 +137,63 @@ class DiscussionService:
             )
             for m in rows
         ]
+
+    async def intervene(
+        self, discussion_id: str, user_id: str, content: str
+    ) -> MessageResponse:
+        disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
+        if not disc:
+            raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
+        if str(disc.owner_id) != user_id:
+            raise BusinessException(
+                ErrorCode.FORBIDDEN, "Cannot intervene in another user's discussion"
+            )
+        if disc.status not in ("starting", "running"):
+            raise BusinessException(
+                ErrorCode.DISCUSSION_ENDED,
+                f"Discussion status is {disc.status}, cannot intervene",
+            )
+
+        user_repo = UserRepository(self.repo.session)
+        user = await user_repo.find_by_id(uuid.UUID(user_id))
+        username = user.username if user else "观众"
+
+        existing = await self.repo.list_messages(disc.id)
+        round_number = existing[-1].round_number if existing else 0
+
+        msg = await self.repo.add_message(
+            disc.id,
+            round_number=round_number,
+            message_type="user_intervene",
+            content=content.strip(),
+            agent_name=username,
+        )
+        await publish_discussion_event(
+            str(disc.id),
+            "message",
+            {
+                "id": str(msg.id),
+                "discussion_id": str(msg.discussion_id),
+                "round_number": msg.round_number,
+                "agent_id": None,
+                "agent_name": msg.agent_name,
+                "message_type": msg.message_type,
+                "content": msg.content,
+                "confidence": None,
+                "created_at": msg.created_at.isoformat() if msg.created_at else "",
+            },
+        )
+        return MessageResponse(
+            id=str(msg.id),
+            discussion_id=str(msg.discussion_id),
+            round_number=msg.round_number,
+            agent_id=None,
+            agent_name=msg.agent_name,
+            message_type=msg.message_type,
+            content=msg.content,
+            confidence=None,
+            created_at=msg.created_at.isoformat(),
+        )
 
     async def _get_agent_infos(self, discussion_id: uuid.UUID) -> list[AgentInfo]:
         rows = await self.repo.get_agents(discussion_id)
