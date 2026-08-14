@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
@@ -25,6 +26,8 @@ export default function DiscussionRoom() {
   const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
   const [live, setLive] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
 
   async function loadOnce() {
     if (!id) return
@@ -40,7 +43,6 @@ export default function DiscussionRoom() {
     loadOnce().catch(() => setError('加载讨论失败'))
   }, [id])
 
-  // SSE：有新消息立刻推到气泡，不再 3 秒轮询
   useEffect(() => {
     if (!id) return
     const es = new EventSource(`/api/v1/discussions/${id}/stream`)
@@ -90,6 +92,24 @@ export default function DiscussionRoom() {
     }
   }
 
+  async function onIntervene(e: FormEvent) {
+    e.preventDefault()
+    if (!id || !draft.trim() || sending) return
+    setSending(true)
+    setError('')
+    try {
+      await api.post(`/discussions/${id}/intervene`, { content: draft.trim() })
+      setDraft('')
+    } catch {
+      setError('发送失败（讨论未进行中，或后端报错）')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const canIntervene =
+    discussion?.status === 'running' || discussion?.status === 'starting'
+
   return (
     <div className="page wide">
       <div className="row">
@@ -109,9 +129,18 @@ export default function DiscussionRoom() {
       <div className="messages">
         {messages.length === 0 && <p className="muted">还没有消息</p>}
         {messages.map((m) => (
-          <article key={m.id} className="bubble">
+          <article
+            key={m.id}
+            className={
+              m.message_type === 'user_intervene' ? 'bubble user' : 'bubble'
+            }
+          >
             <header>
-              <strong>{m.agent_name || m.message_type}</strong>
+              <strong>
+                {m.message_type === 'user_intervene'
+                  ? `观众（${m.agent_name || '我'}）`
+                  : m.agent_name || m.message_type}
+              </strong>
               <span>
                 #{m.round_number} · {m.message_type}
                 {m.confidence != null ? ` · ${m.confidence}` : ''}
@@ -121,6 +150,20 @@ export default function DiscussionRoom() {
           </article>
         ))}
       </div>
+      {canIntervene && (
+        <form className="composer" onSubmit={onIntervene}>
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="输入你的观点，Enter 发送"
+            disabled={sending}
+            maxLength={2000}
+          />
+          <button type="submit" disabled={sending || !draft.trim()}>
+            {sending ? '发送中…' : '发送'}
+          </button>
+        </form>
+      )}
     </div>
   )
 }

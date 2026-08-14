@@ -157,6 +157,20 @@ async def run_multi_discussion(
 
             while round_num < MAX_ROUNDS and (time.time() - started) < duration:
                 round_num += 1
+                # 每轮开始前从 PG 重建上下文，这样用户介入能进入下一轮
+                db_msgs = await repo.list_messages(discussion_id)
+                transcript = []
+                for m in db_msgs:
+                    if m.message_type not in (
+                        "host_intro",
+                        "agent_speak",
+                        "user_intervene",
+                    ):
+                        continue
+                    label = m.agent_name or "未知"
+                    if m.message_type == "user_intervene":
+                        label = f"观众（{label}）"
+                    transcript.append((label, m.content))
                 history = _history_text(transcript)
 
                 async def _think_one(agent: AgentSpec) -> Decision:

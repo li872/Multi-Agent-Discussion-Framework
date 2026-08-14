@@ -1,4 +1,4 @@
-# 讨论接口：创建 / 列表 / 详情 / 启动真编排 / 消息列表
+# 讨论接口：创建 / 列表 / 详情 / 启动真编排 / 消息列表 / 用户介入
 
 from fastapi import APIRouter, Depends, Query
 
@@ -7,6 +7,7 @@ from backend.deps import require_user
 from backend.services.discussion.schemas import (
     DiscussionCreateRequest,
     DiscussionResponse,
+    InterveneRequest,
     MessageResponse,
 )
 from backend.services.discussion.service import DiscussionService, get_discussion_service
@@ -68,4 +69,15 @@ async def list_messages(
     svc: DiscussionService = Depends(get_discussion_service),
 ) -> Result[list[MessageResponse]]:
     result = await svc.list_messages(discussion_id)
+    return Result.ok(result)
+
+
+@router.post("/{discussion_id}/intervene")
+async def intervene(
+    discussion_id: str,
+    req: InterveneRequest,
+    user_id: str = Depends(require_user),
+    svc: DiscussionService = Depends(get_discussion_service),
+) -> Result[MessageResponse]:
+    result = await svc.intervene(discussion_id, user_id, req.content)
     return Result.ok(result)
