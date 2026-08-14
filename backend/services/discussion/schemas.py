@@ -36,3 +36,7 @@ class MessageResponse(BaseModel):
     content: str
     confidence: float | None = None
     created_at: str
+
+
+class InterveneRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)

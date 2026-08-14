@@ -225,3 +225,40 @@ code {
   font-size: 32px;
   margin: 16px 0 20px;
 }
+
+.bubble.user {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  margin-bottom: 24px;
+}
+
+.composer input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.composer button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.composer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
