@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Login from './pages/Login'
 import NewDiscussion from './pages/NewDiscussion'
 import DiscussionRoom from './pages/DiscussionRoom'
+import Characters from './pages/Characters'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token')
@@ -27,6 +28,14 @@ export default function App() {
           element={
             <RequireAuth>
               <DiscussionRoom />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/characters"
+          element={
+            <RequireAuth>
+              <Characters />
             </RequireAuth>
           }
         />
