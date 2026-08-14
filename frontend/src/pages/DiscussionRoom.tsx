@@ -113,7 +113,7 @@ export default function DiscussionRoom() {
   return (
     <div className="page wide">
       <div className="row">
-        <Link to="/discussions/new">← 新建讨论</Link>
+        <Link to="/discussions">← 我的讨论</Link>
         <span className="status">
           状态：{discussion?.status || '…'}
           {live ? ' · 实时' : ' · 未连接'}
