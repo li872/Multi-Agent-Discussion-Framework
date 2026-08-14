@@ -3,6 +3,7 @@ import Login from './pages/Login'
 import NewDiscussion from './pages/NewDiscussion'
 import DiscussionRoom from './pages/DiscussionRoom'
 import Characters from './pages/Characters'
+import Discussions from './pages/Discussions'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token')
@@ -39,6 +40,14 @@ export default function App() {
             </RequireAuth>
           }
         />
+        <Route
+          path="/discussions"
+          element={
+            <RequireAuth>
+              <Discussions />
+            </RequireAuth>
+          }
+        />       
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

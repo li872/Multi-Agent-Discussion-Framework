@@ -57,7 +57,7 @@ export default function Characters() {
     return (
         <div className="page">
             <div className="row">
-                <Link to="/discussions/new">← 新建讨论</Link>
+                <Link to="/discussions">我的讨论</Link>
             </div>
             <h1>我的角色</h1>
             <form className="card" onSubmit={onCreate}>
