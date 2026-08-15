@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
+import LogoutButton from '../components/LogoutButton'
 
 type Character = {
   id: string
@@ -13,19 +14,36 @@ type Character = {
 export default function Gallery() {
   const [characters, setCharacters] = useState<Character[]>([])
   const [error, setError] = useState('')
+  const [copying, setCopying] = useState<string | null>(null)
+
+  async function refresh() {
+    const res = await api.get<ApiResult<{ items: Character[] }>>('/characters/gallery')
+    setCharacters(res.data.data.items || [])
+  }
 
   useEffect(() => {
-    api
-      .get<ApiResult<{ items: Character[] }>>('/characters/gallery')
-      .then((res) => setCharacters(res.data.data.items || []))
-      .catch(() => setError('加载画廊失败'))
+    refresh().catch(() => setError('加载画廊失败'))
   }, [])
+
+  async function onCopy(id: string, name: string) {
+    setCopying(id)
+    setError('')
+    try {
+      await api.post(`/characters/${id}/copy`)
+      alert(`已复制「${name}」到我的角色`)
+    } catch {
+      setError('复制失败（可能未登录或角色非公开）')
+    } finally {
+      setCopying(null)
+    }
+  }
 
   return (
     <div className="page">
       <div className="row">
         <Link to="/characters">← 我的角色</Link>
         <Link to="/discussions">我的讨论</Link>
+        <LogoutButton />
       </div>
       <h1>公开画廊</h1>
       {error && <p className="error">{error}</p>}
@@ -36,6 +54,13 @@ export default function Gallery() {
             <strong>{c.name}</strong>
             <span> · {c.status}</span>
             {c.description ? <p>{c.description}</p> : null}
+            <button
+              type="button"
+              disabled={copying === c.id}
+              onClick={() => onCopy(c.id, c.name)}
+            >
+              {copying === c.id ? '复制中…' : '复制到我的角色'}
+            </button>
           </li>
         ))}
       </ul>
