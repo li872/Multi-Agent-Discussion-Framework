@@ -6,6 +6,7 @@ from backend.core.responses import Result
 from backend.deps import get_current_user, require_user
 from backend.services.character.schemas import (
     CharacterCreateRequest,
+    CharacterGenerateRequest,
     CharacterResponse,
     CharacterUpdateRequest,
     FileContentRequest,
@@ -24,6 +25,17 @@ async def create_character(
     character = await svc.create_character(
         user_id, req.name, req.description, req.tags, req.is_public
     )
+    return Result.ok(character)
+
+
+# /generate 必须在 /{skill_id} 之前注册，否则 "generate" 会被当成 id
+@router.post("/generate")
+async def generate_character(
+    req: CharacterGenerateRequest,
+    user_id: str = Depends(require_user),
+    svc: CharacterService = Depends(get_character_service),
+) -> Result[CharacterResponse]:
+    character = await svc.generate_character(user_id, req.name, req.description)
     return Result.ok(character)
 
 
