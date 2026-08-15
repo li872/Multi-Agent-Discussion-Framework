@@ -20,6 +20,26 @@ type Message = {
   confidence: number | null
 }
 
+/** 把入库的 think 原文尽量收成可读短句（学习版存的是 decision=... 字符串） */
+function formatThinkText(content: string): string {
+  const decision = content.match(/decision=([^,\s]+)/)?.[1]
+  const reasoning = content.match(/reasoning=(.*)$/)?.[1]?.trim()
+  if (reasoning) {
+    return decision ? `【${decision}】${reasoning}` : reasoning
+  }
+  return content
+}
+
+function bubbleClassName(messageType: string): string {
+  if (messageType === 'user_intervene') return 'bubble user'
+  if (messageType === 'agent_think') return 'bubble thought'
+  if (messageType === 'host_intro' || messageType === 'host_summary') {
+    return 'bubble host'
+  }
+  return 'bubble'
+}
+
+
 export default function DiscussionRoom() {
   const { id } = useParams<{ id: string }>()
   const [discussion, setDiscussion] = useState<Discussion | null>(null)
@@ -192,24 +212,30 @@ export default function DiscussionRoom() {
       <div className="messages">
         {messages.length === 0 && <p className="muted">还没有消息</p>}
         {messages.map((m) => (
-          <article
-            key={m.id}
-            className={
-              m.message_type === 'user_intervene' ? 'bubble user' : 'bubble'
-            }
-          >
+          <article key={m.id} className={bubbleClassName(m.message_type)}>
             <header>
               <strong>
                 {m.message_type === 'user_intervene'
                   ? `观众（${m.agent_name || '我'}）`
                   : m.agent_name || m.message_type}
               </strong>
-              <span>
-                #{m.round_number} · {m.message_type}
-                {m.confidence != null ? ` · ${m.confidence}` : ''}
+              <span className="bubble-meta">
+                {/* 视觉区分：思考 vs 发言（对齐参考项目的「内部思考」标签思路） */}
+                {m.message_type === 'agent_think' && (
+                  <span className="badge thought-badge">内部思考</span>
+                )}
+                {m.message_type === 'agent_speak' && (
+                  <span className="badge speak-badge">发言</span>
+                )}
+                #{m.round_number}
+                {m.confidence != null ? ` · 置信度 ${m.confidence}` : ''}
               </span>
             </header>
-            <p>{m.content}</p>
+            <p>
+              {m.message_type === 'agent_think'
+                ? formatThinkText(m.content)
+                : m.content}
+            </p>
           </article>
         ))}
       </div>
