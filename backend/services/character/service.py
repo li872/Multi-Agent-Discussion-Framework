@@ -105,6 +105,57 @@ class CharacterService:
             has_more=(page * page_size) < total,
         )
 
+    async def list_gallery(
+        self, page: int, page_size: int, search: str | None
+    ) -> CharacterListResponse:
+        skills, total = await self.repo.list_public(page, page_size, search)
+        return CharacterListResponse(
+            items=[self._to_response(s) for s in skills],
+            total=total,
+            page=page,
+            page_size=page_size,
+            has_more=(page * page_size) < total,
+        )
+
+    async def copy_character(self, skill_id: str, user_id: str) -> CharacterResponse:
+        """把公开画廊角色复制到当前用户（文件 + PG 元数据）。"""
+        src = await self.repo.find_by_id(uuid.UUID(skill_id))
+        if not src or not src.is_public or src.status != "ready":
+            raise BusinessException(ErrorCode.SKILL_NOT_FOUND, "Public skill not found")
+
+        uid = uuid.UUID(user_id)
+        base_name = src.name
+        dst_name = base_name
+        # 重名则加后缀，避免唯一约束冲突
+        for i in range(0, 20):
+            candidate = base_name if i == 0 else f"{base_name.rstrip('-perspective')}-copy{i}-perspective"
+            if not candidate.endswith("-perspective"):
+                candidate = f"{candidate}-perspective"
+            exists = await self.repo.find_by_owner_and_name(uid, candidate)
+            if not exists:
+                dst_name = candidate
+                break
+        else:
+            raise BusinessException(ErrorCode.SKILL_NAME_EXISTS, "Too many copies")
+
+        try:
+            await self.fm.copy_skill_dir(
+                str(src.owner_id), src.name, user_id, dst_name
+            )
+        except FileNotFoundError:
+            raise BusinessException(ErrorCode.SKILL_NOT_FOUND, "Skill files missing")
+
+        skill = await self.repo.create(
+            owner_id=uid,
+            name=dst_name,
+            description=src.description,
+            file_path=f"{user_id}/{dst_name}",
+            tags=list(src.tags or []),
+            is_public=False,
+            status="ready",
+        )
+        return self._to_response(skill)
+
     async def get_character(self, skill_id: str, user_id: str = "") -> CharacterResponse:
         skill = await self.repo.find_by_id(uuid.UUID(skill_id))
         if not skill:
