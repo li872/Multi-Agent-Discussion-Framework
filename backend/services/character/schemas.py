@@ -9,6 +9,10 @@ class CharacterCreateRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     is_public: bool = False
 
+class CharacterGenerateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    description: str = Field(default="", max_length=1024)
+
 
 class CharacterUpdateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=64)
