@@ -262,3 +262,47 @@ code {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* 主持人气泡 */
+.bubble.host {
+  background: #f5efe4;
+  border-color: #d8cbb7;
+}
+
+/* 内部思考：虚线框 + 斜体，和正式发言区分（参考项目同类思路） */
+.bubble.thought {
+  background: #f9f4e9;
+  border: 2px dashed #d8cbb7;
+  color: #6d6254;
+}
+
+.bubble.thought p {
+  font-style: italic;
+  color: #6d6254;
+}
+
+.bubble-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.thought-badge {
+  color: #6d6254;
+  background: #f0e6d4;
+}
+
+.speak-badge {
+  color: #185f51;
+  background: rgba(32, 115, 98, 0.12);
+  border: 1px solid rgba(32, 115, 98, 0.2);
+}
