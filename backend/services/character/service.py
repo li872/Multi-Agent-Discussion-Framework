@@ -3,11 +3,13 @@
 # 1. 拼 skill 目录名（名字-perspective）
 # 2. 磁盘创建文件夹 + 写初始 SKILL.md
 # 3. PG 插入 skills 行（file_path 指向目录）
+import asyncio
 import uuid
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_engine.skill_gen.mini_generate import run_mini_skill_generation
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
 from backend.services.character.file_manager import SkillFileManager
@@ -41,6 +43,51 @@ class CharacterService:
             tags=tags,
             is_public=is_public,
             status="ready",
+        )
+        return self._to_response(skill)
+
+    async def generate_character(
+        self, owner_id: str, name: str, description: str = ""
+    ) -> CharacterResponse:
+        """学习版 AI 生成：先落库 generating，再后台 LLM 写 SKILL.md。"""
+        uid = uuid.UUID(owner_id)
+        display_name = name.strip()
+        skill_name = (
+            f"{display_name}-perspective"
+            if not display_name.endswith("-perspective")
+            else display_name
+        )
+        existing = await self.repo.find_by_owner_and_name(uid, skill_name)
+        if existing:
+            raise BusinessException(ErrorCode.SKILL_NAME_EXISTS)
+
+        await self.fm.create_skill_dir(owner_id, skill_name)
+        await self.fm.write_file(
+            owner_id,
+            skill_name,
+            "SKILL.md",
+            f"# {display_name}\n\n> 生成中…\n",
+        )
+        # status=generating：列表可立刻看到「生成中」；真正内容由后台任务覆盖
+        skill = await self.repo.create(
+            owner_id=uid,
+            name=skill_name,
+            description=description or f"正在生成 {display_name}",
+            file_path=f"{owner_id}/{skill_name}",
+            tags=[],
+            is_public=False,
+            status="generating",
+        )
+
+        # 与「开始讨论」相同：HTTP 先返回，LLM 不阻塞接口
+        asyncio.create_task(
+            run_mini_skill_generation(
+                skill_id=skill.id,
+                owner_id=owner_id,
+                skill_name=skill_name,
+                display_name=display_name.replace("-perspective", ""),
+                description=description,
+            )
         )
         return self._to_response(skill)
 
