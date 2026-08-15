@@ -231,8 +231,44 @@ async def run_multi_discussion(
                     f"{'（全员沉默，请你主动打开局面）' if forced else ''}"
                     f"请用中文发言（120-220字）。不要提AI，不要说自己在扮演。"
                 )
-                speech = (await speak_llm.ainvoke(speak_prompt)).content
-                speech_text = (speech if isinstance(speech, str) else str(speech)).strip()
+
+
+
+                # --- 发言真流式（重难点）---
+                # 技术：LangChain ChatOpenAI.astream + Redis Pub/Sub + SSE
+                # 作用：边生成边推 chunk，前端可打字机显示；结束后再整段写入 PostgreSQL
+                await publish_discussion_event(
+                    str(discussion_id),
+                    "agent_speak_start",
+                    {
+                        "agent_id": str(speaker.agent_id),
+                        "agent_name": speaker.agent_name,
+                        "round": round_num,
+                        # temp_id：前端临时气泡的主键，入库前还没有真实 message UUID
+                        "temp_id": f"stream-{round_num}-{speaker.agent_id}",
+                    },
+                )
+
+                parts: list[str] = []
+                # astream：异步迭代模型输出的增量文本（每包常是若干 token，代码里叫 chunk）
+                async for chunk in speak_llm.astream(speak_prompt):
+                    piece = chunk.content
+                    text = piece if isinstance(piece, str) else str(piece or "")
+                    if not text:
+                        continue
+                    parts.append(text)
+                    await publish_discussion_event(
+                        str(discussion_id),
+                        "agent_speak_chunk",
+                        {
+                            "temp_id": f"stream-{round_num}-{speaker.agent_id}",
+                            "agent_name": speaker.agent_name,
+                            "content": text,
+                        },
+                    )
+
+                speech_text = "".join(parts).strip()
+                # 落库：PostgreSQL 仍存完整发言（权威数据）；再推正式 message 事件
                 speak_msg = await repo.add_message(
                     discussion_id,
                     round_number=round_num,
