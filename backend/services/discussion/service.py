@@ -195,6 +195,14 @@ class DiscussionService:
             created_at=msg.created_at.isoformat(),
         )
 
+    async def delete_discussion(self, discussion_id: str, user_id: str) -> None:
+        disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
+        if not disc:
+            raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
+        if str(disc.owner_id) != user_id:
+            raise BusinessException(ErrorCode.FORBIDDEN, "Not your discussion")
+        await self.repo.soft_delete(disc)
+
     async def _get_agent_infos(self, discussion_id: uuid.UUID) -> list[AgentInfo]:
         rows = await self.repo.get_agents(discussion_id)
         agents: list[AgentInfo] = []
