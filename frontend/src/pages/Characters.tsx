@@ -151,9 +151,12 @@ export default function Characters() {
               <span className="muted">（后台生成中，约数十秒）</span>
             )}
             {c.description ? <p>{c.description}</p> : null}
-            <button type="button" onClick={() => onDelete(c.id, c.name)}>
-              删除
-            </button>
+            <div className="row">
+              <Link to={`/characters/${c.id}/skill`}>查看 / 编辑 Skill</Link>
+              <button type="button" onClick={() => onDelete(c.id, c.name)}>
+                删除
+              </button>
+            </div>
           </li>
         ))}
       </ul>
