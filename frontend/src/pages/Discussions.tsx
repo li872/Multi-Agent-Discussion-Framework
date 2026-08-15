@@ -15,12 +15,26 @@ export default function Discussions() {
   const [items, setItems] = useState<Discussion[]>([])
   const [error, setError] = useState('')
 
+  async function refresh() {
+    const res = await api.get<ApiResult<{ items: Discussion[] }>>('/discussions')
+    setItems(res.data.data.items || [])
+  }
+
   useEffect(() => {
-    api
-      .get<ApiResult<{ items: Discussion[] }>>('/discussions')
-      .then((res) => setItems(res.data.data.items || []))
-      .catch(() => setError('加载讨论失败'))
+    refresh().catch(() => setError('加载讨论失败'))
   }, [])
+
+  async function onDelete(id: string, topic: string) {
+    if (!window.confirm(`确定删除讨论「${topic}」？`)) return
+    setError('')
+    try {
+      // 软删除：后端写 deleted_at，列表不再返回
+      await api.delete(`/discussions/${id}`)
+      setItems((prev) => prev.filter((d) => d.id !== id))
+    } catch {
+      setError('删除失败')
+    }
+  }
 
   return (
     <div className="page">
@@ -39,6 +53,9 @@ export default function Discussions() {
               <strong>{d.topic}</strong>
             </Link>
             <span> · {d.status}</span>
+            <button type="button" onClick={() => onDelete(d.id, d.topic)}>
+              删除
+            </button>
           </li>
         ))}
       </ul>

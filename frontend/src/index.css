@@ -306,3 +306,18 @@ code {
   background: rgba(32, 115, 98, 0.12);
   border: 1px solid rgba(32, 115, 98, 0.2);
 }
+
+.skill-editor {
+  width: 100%;
+  min-height: 420px;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.45;
+  background: var(--code-bg);
+  color: var(--text-h);
+  resize: vertical;
+}
