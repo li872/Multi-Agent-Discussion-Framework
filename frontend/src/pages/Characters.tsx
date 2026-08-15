@@ -51,7 +51,16 @@ export default function Characters() {
             setSaving(false)
         }
     }
-
+    async function onDelete(id: string, name: string) {
+    if (!window.confirm(`确定删除角色「${name}」？`)) return
+    setError('')
+    try {
+        await api.delete(`/characters/${id}`)
+        setCharacters((prev) => prev.filter((c) => c.id !== id))
+    } catch {
+        setError('删除失败')
+    }
+    }
 
 
     return (
@@ -84,6 +93,9 @@ export default function Characters() {
                         <strong>{c.name}</strong>
                         <span> · {c.status}</span>
                         {c.description ? <p>{c.description}</p> : null}
+                        <button type="button" onClick={() => onDelete(c.id, c.name)}>
+                          删除
+                        </button>
                     </li>
                 ))}
             </ul>

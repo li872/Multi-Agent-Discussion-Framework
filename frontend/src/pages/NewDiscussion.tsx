@@ -77,7 +77,11 @@ export default function NewDiscussion() {
         </label>
         <div>
           <p>选择角色（可多选）</p>
-          {characters.length === 0 && <p>暂无角色，请先在后端创建</p>}
+          {characters.length === 0 && (
+            <p>
+              暂无角色，请先去 <Link to="/characters">我的角色</Link> 创建
+            </p>
+          )}
           <ul className="checklist">
             {characters.map((c) => (
               <li key={c.id}>
