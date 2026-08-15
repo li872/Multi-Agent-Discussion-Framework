@@ -174,6 +174,21 @@ export default function DiscussionRoom() {
     }
   }
 
+  async function onResume() {
+    // 续聊：对 completed / error 的讨论重新启动编排，保留已有历史
+    if (!id) return
+    setStarting(true)
+    setError('')
+    try {
+      await api.post(`/discussions/${id}/resume`)
+      setDiscussion((d) => (d ? { ...d, status: 'running' } : d))
+    } catch {
+      setError('续聊失败（可能状态已改变，或后端报错）')
+    } finally {
+      setStarting(false)
+    }
+  }
+
   async function onIntervene(e: FormEvent) {
     e.preventDefault()
     if (!id || !draft.trim() || sending) return
@@ -206,6 +221,11 @@ export default function DiscussionRoom() {
       {discussion?.status === 'pending' && (
         <button onClick={onStart} disabled={starting}>
           {starting ? '启动中…' : '开始讨论'}
+        </button>
+      )}
+      {(discussion?.status === 'completed' || discussion?.status === 'error') && (
+        <button onClick={onResume} disabled={starting}>
+          {starting ? '续聊中…' : '继续讨论'}
         </button>
       )}
       {error && <p className="error">{error}</p>}

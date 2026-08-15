@@ -63,6 +63,16 @@ async def start_discussion(
     return Result.ok(result)
 
 
+@router.post("/{discussion_id}/resume")
+async def resume_discussion(
+    discussion_id: str,
+    user_id: str = Depends(require_user),
+    svc: DiscussionService = Depends(get_discussion_service),
+) -> Result[DiscussionResponse]:
+    result = await svc.resume_discussion(user_id, discussion_id)
+    return Result.ok(result)
+
+
 @router.get("/{discussion_id}/messages")
 async def list_messages(
     discussion_id: str,

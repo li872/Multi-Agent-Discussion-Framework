@@ -84,22 +84,7 @@ class DiscussionService:
                 f"Discussion status is {disc.status}, expected pending",
             )
 
-        agents_rows = await self.repo.get_agents(disc.id)
-        if not agents_rows:
-            raise BusinessException(ErrorCode.INVALID_PARAMS, "No agents")
-
-        specs: list[AgentSpec] = []
-        for row in agents_rows:
-            skill = await self.char_repo.find_by_id(row.skill_id)
-            if not skill:
-                continue
-            specs.append(
-                AgentSpec(
-                    agent_id=skill.id,
-                    agent_name=skill.name.replace("-perspective", ""),
-                    skill_file_path=skill.file_path,
-                )
-            )
+        specs = await self._build_specs(disc.id)
         if not specs:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND, "No valid skills")
 
@@ -117,6 +102,57 @@ class DiscussionService:
         disc = await self.repo.find_by_id(disc.id)
         agents = await self._get_agent_infos(disc.id)
         return self._to_response(disc, agents)
+
+    async def resume_discussion(
+        self, owner_id: str, discussion_id: str
+    ) -> DiscussionResponse:
+        # 续聊：允许已结束或报错的讨论重新启动，保留历史消息作为上下文
+        disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
+        if not disc:
+            raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
+        if str(disc.owner_id) != owner_id:
+            raise BusinessException(ErrorCode.FORBIDDEN, "Not your discussion")
+        if disc.status not in ("completed", "error"):
+            raise BusinessException(
+                ErrorCode.DISCUSSION_INVALID_STATUS,
+                f"Discussion status is {disc.status}, expected completed or error",
+            )
+
+        specs = await self._build_specs(disc.id)
+        if not specs:
+            raise BusinessException(ErrorCode.SKILL_NOT_FOUND, "No valid skills")
+
+        await self.repo.update_status(disc, "starting")
+        asyncio.create_task(
+            run_multi_discussion(
+                discussion_id=disc.id,
+                topic=disc.topic,
+                duration=disc.duration,
+                agents=specs,
+                resume=True,
+            )
+        )
+
+        disc = await self.repo.find_by_id(disc.id)
+        agents = await self._get_agent_infos(disc.id)
+        return self._to_response(disc, agents)
+
+    async def _build_specs(self, disc_id: uuid.UUID) -> list[AgentSpec]:
+        # 根据 discussion_agents 表拼装 AgentSpec；技能被删则跳过
+        agents_rows = await self.repo.get_agents(disc_id)
+        specs: list[AgentSpec] = []
+        for row in agents_rows:
+            skill = await self.char_repo.find_by_id(row.skill_id)
+            if not skill:
+                continue
+            specs.append(
+                AgentSpec(
+                    agent_id=skill.id,
+                    agent_name=skill.name.replace("-perspective", ""),
+                    skill_file_path=skill.file_path,
+                )
+            )
+        return specs
 
     async def list_messages(self, discussion_id: str) -> list[MessageResponse]:
         disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
