@@ -263,13 +263,13 @@ code {
   cursor: not-allowed;
 }
 
-/* Ö÷³ÖÈËÆøÅİ */
+/* ä¸»æŒäººæ°”æ³¡ */
 .bubble.host {
   background: #f5efe4;
   border-color: #d8cbb7;
 }
 
-/* ÄÚ²¿Ë¼¿¼£ºĞéÏß¿ò + Ğ±Ìå£¬ºÍÕıÊ½·¢ÑÔÇø·Ö£¨²Î¿¼ÏîÄ¿Í¬ÀàË¼Â·£© */
+/* å†…éƒ¨Ë¼è€ƒï¼šè™šçº¿æ¡† + Ğ±ä½“ï¼Œå’Œæ­£Ê½å‘è¨€åŒºåˆ†ï¼ˆå‚è€ƒé¡¹Ä¿Í¬ç±»Ë¼Â·ï¼‰ */
 .bubble.thought {
   background: #f9f4e9;
   border: 2px dashed #d8cbb7;
