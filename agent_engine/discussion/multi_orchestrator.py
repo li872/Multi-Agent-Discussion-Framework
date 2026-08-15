@@ -114,6 +114,7 @@ async def run_multi_discussion(
     topic: str,
     duration: int,
     agents: list[AgentSpec],
+    resume: bool = False,
 ) -> None:
     if not agents:
         return
@@ -134,28 +135,51 @@ async def run_multi_discussion(
             think_llm = get_chat_llm(temperature=0.3, timeout=20)
             speak_llm = get_chat_llm(temperature=0.8, timeout=30)
 
+            # 先加载 PG 里的已有发言作为上下文；同时算一下当前已进行到的轮次
+            db_msgs = await repo.list_messages(discussion_id)
             transcript: list[tuple[str, str]] = []
+            max_round = 0
+            for m in db_msgs:
+                if m.message_type not in (
+                    "host_intro",
+                    "agent_speak",
+                    "user_intervene",
+                ):
+                    continue
+                label = m.agent_name or "未知"
+                if m.message_type == "user_intervene":
+                    label = f"观众（{label}）"
+                transcript.append((label, m.content))
+                if m.round_number > max_round:
+                    max_round = m.round_number
 
-            intro_prompt = (
-                f"你是圆桌讨论主持人。请用中文做简短开场（80-150字），"
-                f"主题是「{topic}」，邀请在场嘉宾发言。不要提AI。"
-            )
-            intro = (await host_llm.ainvoke(intro_prompt)).content
-            intro_text = (intro if isinstance(intro, str) else str(intro)).strip()
-            intro_msg = await repo.add_message(
-                discussion_id,
-                round_number=0,
-                message_type="host_intro",
-                content=intro_text,
-                agent_name="主持人",
-            )
-            await _publish_message(discussion_id, intro_msg)
-            transcript.append(("主持人", intro_text))
+            if not resume:
+                # 新讨论：先播主持人开场
+                intro_prompt = (
+                    f"你是圆桌讨论主持人。请用中文做简短开场（80-150字），"
+                    f"主题是「{topic}」，邀请在场嘉宾发言。不要提AI。"
+                )
+                intro = (await host_llm.ainvoke(intro_prompt)).content
+                intro_text = (intro if isinstance(intro, str) else str(intro)).strip()
+                intro_msg = await repo.add_message(
+                    discussion_id,
+                    round_number=0,
+                    message_type="host_intro",
+                    content=intro_text,
+                    agent_name="主持人",
+                )
+                await _publish_message(discussion_id, intro_msg)
+                transcript.append(("主持人", intro_text))
+                round_num = 0
+                target_rounds = MAX_ROUNDS
+            else:
+                # 续聊：从已有轮次继续，再追加 MAX_ROUNDS 轮；开场已存在，无需重写
+                round_num = max_round
+                target_rounds = round_num + MAX_ROUNDS
 
             started = time.time()
-            round_num = 0
 
-            while round_num < MAX_ROUNDS and (time.time() - started) < duration:
+            while round_num < target_rounds and (time.time() - started) < duration:
                 round_num += 1
                 # 每轮开始前从 PG 重建上下文，这样用户介入能进入下一轮
                 db_msgs = await repo.list_messages(discussion_id)
