@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
 import type { FormEvent } from 'react'
+import LogoutButton from '../components/LogoutButton'
 
 type Character = {
     id: string
@@ -67,6 +68,7 @@ export default function Characters() {
         <div className="page">
             <div className="row">
                 <Link to="/discussions">我的讨论</Link>
+                <LogoutButton />
             </div>
             <h1>我的角色</h1>
             <form className="card" onSubmit={onCreate}>
