@@ -16,6 +16,7 @@ type Character = {
   name: string
   description: string
   status: string
+  is_public: boolean
 }
 
 export default function Characters() {
@@ -102,6 +103,18 @@ export default function Characters() {
     }
   }
 
+  async function onTogglePublic(id: string, current: boolean) {
+    setError('')
+    try {
+      await api.put(`/characters/${id}`, { is_public: !current })
+      setCharacters((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, is_public: !current } : c)),
+      )
+    } catch {
+      setError('修改可见性失败')
+    }
+  }
+
   return (
     <div className="page">
       <div className="row">
@@ -150,6 +163,12 @@ export default function Characters() {
             {c.description ? <p>{c.description}</p> : null}
             <div className="row">
               <Link to={`/characters/${c.id}/skill`}>查看 / 编辑 Skill</Link>
+              <button
+                type="button"
+                onClick={() => onTogglePublic(c.id, c.is_public)}
+              >
+                {c.is_public ? '设为私有' : '公开到画廊'}
+              </button>
               <button type="button" onClick={() => onDelete(c.id, c.name)}>
                 删除
               </button>
