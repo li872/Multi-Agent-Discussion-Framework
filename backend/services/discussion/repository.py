@@ -74,6 +74,13 @@ class DiscussionRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def soft_delete(self, disc: Discussion) -> None:
+        # 软删除：列表/详情不再出现；消息仍留在库里便于审计（一期不做级联清消息）
+        from backend.models.base import utcnow
+
+        disc.deleted_at = utcnow()
+        await self.session.commit()
+
     async def update_status(
         self,
         disc: Discussion,
