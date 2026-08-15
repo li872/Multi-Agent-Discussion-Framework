@@ -1,7 +1,11 @@
 # GET /api/v1/discussions/{id}/stream —— 浏览器用 EventSource 收实时事件
+#
+# 技术：SSE (Server-Sent Events) + Redis Pub/Sub
+# 注意：空闲时不能 asyncio.sleep(15) 卡住读循环，否则 chunk 会在 Redis 里堆住，
+# 醒来后一次性推给前端，看起来就像「哗一下」而不是流式。
 
-import asyncio
 import json
+import time
 
 import redis.asyncio as redis
 from fastapi import APIRouter, Request
@@ -19,6 +23,7 @@ async def discussion_stream(discussion_id: str, request: Request):
         channel = f"discussion:{discussion_id}:events"
         pubsub = r.pubsub()
         await pubsub.subscribe(channel)
+        last_heartbeat = time.monotonic()
         try:
             yield "event: heartbeat\ndata: {}\n\n"
             while True:
@@ -32,10 +37,10 @@ async def discussion_stream(discussion_id: str, request: Request):
                     event_type = payload.get("event", "message")
                     data = json.dumps(payload.get("data", {}), ensure_ascii=False)
                     yield f"event: {event_type}\ndata: {data}\n\n"
-                else:
-                    # 定期心跳，避免代理断开空闲连接
+                elif time.monotonic() - last_heartbeat >= 15:
+                    # 仅定时心跳，不 sleep 阻塞读 Redis
                     yield "event: heartbeat\ndata: {}\n\n"
-                    await asyncio.sleep(15)
+                    last_heartbeat = time.monotonic()
         finally:
             await pubsub.unsubscribe(channel)
             await pubsub.aclose()
