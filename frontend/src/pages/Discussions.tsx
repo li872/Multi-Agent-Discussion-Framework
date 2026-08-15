@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
+import LogoutButton from '../components/LogoutButton'
 
 type Discussion = {
   id: string
@@ -26,6 +27,7 @@ export default function Discussions() {
       <div className="row">
         <Link to="/characters">← 我的角色</Link>
         <Link to="/discussions/new">新建讨论</Link>
+        <LogoutButton />
       </div>
       <h1>我的讨论</h1>
       {error && <p className="error">{error}</p>}
