@@ -74,6 +74,17 @@ async def get_character(
     return Result.ok(character)
 
 
+@router.post("/{skill_id}/copy")
+async def copy_character(
+    skill_id: str,
+    user_id: str = Depends(require_user),
+    svc: CharacterService = Depends(get_character_service),
+) -> Result[CharacterResponse]:
+    # 把公开画廊角色复制到当前用户（需登录）
+    character = await svc.copy_character(skill_id, user_id)
+    return Result.ok(character)
+
+
 @router.put("/{skill_id}")
 async def update_character(
     skill_id: str,
