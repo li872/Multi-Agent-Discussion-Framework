@@ -1,5 +1,4 @@
 // 角色列表 + 手动创建 + AI 生成（学习版）
-//
 // 原理：
 // - 手动创建：POST /characters → 立刻 ready
 // - AI 生成：POST /characters/generate → 先 generating，后台 LLM 写 SKILL.md
@@ -36,7 +35,6 @@ export default function Characters() {
     refreshList().catch(() => setError('加载角色失败'))
   }, [])
 
-  // 有角色在 generating 时轮询列表（学习版；完整版可用生成进度 SSE）
   useEffect(() => {
     const hasGenerating = characters.some((c) => c.status === 'generating')
     if (!hasGenerating) return
@@ -79,7 +77,6 @@ export default function Characters() {
     setError('')
     setGenerating(true)
     try {
-      // 立刻返回 generating；真正 SKILL.md 在后台写
       await api.post('/characters/generate', {
         name: name.trim(),
         description: description.trim(),
@@ -109,6 +106,7 @@ export default function Characters() {
     <div className="page">
       <div className="row">
         <Link to="/discussions">我的讨论</Link>
+        <Link to="/gallery">公开画廊</Link>
         <LogoutButton />
       </div>
       <h1>我的角色</h1>
@@ -129,7 +127,6 @@ export default function Characters() {
           <button type="submit" disabled={saving || generating}>
             {saving ? '创建中…' : '手动创建'}
           </button>
-          {/* type=button 避免触发表单默认提交；另绑 onGenerate */}
           <button
             type="button"
             disabled={saving || generating}
@@ -140,7 +137,7 @@ export default function Characters() {
         </div>
       </form>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error\">{error}</p>}
       {characters.length === 0 && !error && <p>暂无角色</p>}
       <ul className="checklist">
         {characters.map((c) => (
