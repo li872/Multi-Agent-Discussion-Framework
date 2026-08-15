@@ -51,6 +51,19 @@ async def list_my_characters(
     return Result.ok(result)
 
 
+# /gallery 必须在 /{skill_id} 之前注册，否则 "gallery" 会被当成 id
+@router.get("/gallery")
+async def list_public_characters(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    search: str | None = None,
+    svc: CharacterService = Depends(get_character_service),
+) -> Result:
+    # 学习版画廊：无需登录即可浏览公开角色
+    result = await svc.list_gallery(page, page_size, search)
+    return Result.ok(result)
+
+
 @router.get("/{skill_id}")
 async def get_character(
     skill_id: str,

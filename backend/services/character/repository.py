@@ -77,6 +77,29 @@ class CharacterRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all()), total
 
+    async def list_public(
+        self, page: int, page_size: int, search: str | None = None
+    ) -> tuple[list[Skill], int]:
+        # 画廊：只列公开且未删除的角色
+        base = select(Skill).where(
+            Skill.deleted_at.is_(None),
+            Skill.is_public.is_(True),
+            Skill.status == "ready",
+        )
+        if search:
+            base = base.where(
+                or_(Skill.name.ilike(f"%{search}%"), Skill.description.ilike(f"%{search}%"))
+            )
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total = (await self.session.execute(count_stmt)).scalar_one()
+        stmt = (
+            base.order_by(Skill.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all()), total
+
     async def update(self, skill: Skill, **kwargs: Any) -> Skill:
         for key, value in kwargs.items():
             if value is not None and hasattr(skill, key):
