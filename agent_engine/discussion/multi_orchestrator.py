@@ -15,6 +15,7 @@ from agent_engine.llm import get_chat_llm
 from backend.deps import async_session_factory
 from backend.models.base import utcnow
 from backend.models.discussion_message import DiscussionMessage
+from backend.services.audit import AuditRepository
 from backend.services.character.file_manager import SKILLS_ROOT
 from backend.services.discussion.repository import DiscussionRepository
 from backend.services.realtime.publisher import publish_discussion_event
@@ -92,6 +93,36 @@ def _extract_decision(text: str) -> dict:
     conf = max(0.0, min(1.0, conf))
     reasoning = str(data.get("reasoning", ""))[:80]
     return {"decision": decision, "confidence": conf, "reasoning": reasoning}
+
+
+async def _astream_chunks(
+    llm, prompt: str, per_chunk_timeout: float = 10.0
+):
+    """带逐 token 超时的 astream 包装。
+
+    技术说明：
+    - LangChain ChatOpenAI.astream 返回异步生成器，每次 __anext__() 拿到一个 chunk；
+    - 用 asyncio.wait_for 包裹每一次 __anext__()，如果 timeout 秒内没有新 token 就中断；
+    - 中断时显式 aclose() 生成器，避免底层 HTTP 连接或 LangGraph 任务泄漏；
+    - 适用场景：主持人开场、Agent 发言、主持人总结等流式输出。
+    """
+    agen = llm.astream(prompt)
+    try:
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    agen.__anext__(), timeout=per_chunk_timeout
+                )
+                yield chunk
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "stream token timeout after %.1fs, stopping", per_chunk_timeout
+                )
+                break
+    finally:
+        await agen.aclose()
 
 
 def _pick_speaker(decisions: list[Decision]) -> tuple[Decision, bool]:
@@ -176,7 +207,8 @@ async def run_multi_discussion(
 
                 intro_parts: list[str] = []
                 # astream：异步迭代模型输出的增量文本（每包常是若干 token，代码里叫 chunk）
-                async for chunk in host_llm.astream(intro_prompt):
+                # 用 _astream_chunks 做逐 token 10s 超时保护，避免开场白挂死
+                async for chunk in _astream_chunks(host_llm, intro_prompt, 10.0):
                     piece = chunk.content
                     text = piece if isinstance(piece, str) else str(piece or "")
                     if not text:
@@ -239,9 +271,22 @@ async def run_multi_discussion(
                         f'{{"decision":"speak"|"wait","confidence":0.00到1.00两位小数,"reasoning":"10字内理由"}}'
                     )
                     try:
-                        raw = (await think_llm.ainvoke(prompt)).content
-                        raw_text = raw if isinstance(raw, str) else str(raw)
+                        # 决策阶段加 15s 总超时：
+                        # 模型卡顿或网络异常时直接降级为 wait，避免整轮被拖死
+                        raw = await asyncio.wait_for(
+                            think_llm.ainvoke(prompt), timeout=15.0
+                        )
+                        raw_text = raw.content if isinstance(raw.content, str) else str(raw)
                         parsed = _extract_decision(raw_text)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "think timeout after 15s: %s", agent.agent_name
+                        )
+                        parsed = {
+                            "decision": "wait",
+                            "confidence": 0.0,
+                            "reasoning": "思考超时",
+                        }
                     except Exception:
                         logger.exception("think failed: %s", agent.agent_name)
                         parsed = {
@@ -307,7 +352,8 @@ async def run_multi_discussion(
 
                 parts: list[str] = []
                 # astream：异步迭代模型输出的增量文本（每包常是若干 token，代码里叫 chunk）
-                async for chunk in speak_llm.astream(speak_prompt):
+                # 用 _astream_chunks 做逐 token 10s 超时保护，超时仍保留已生成的片段
+                async for chunk in _astream_chunks(speak_llm, speak_prompt, 10.0):
                     piece = chunk.content
                     text = piece if isinstance(piece, str) else str(piece or "")
                     if not text:
@@ -359,7 +405,8 @@ async def run_multi_discussion(
 
             summary_parts: list[str] = []
             # astream：异步迭代模型输出的增量文本（每包常是若干 token，代码里叫 chunk）
-            async for chunk in host_llm.astream(summary_prompt):
+            # 用 _astream_chunks 做逐 token 10s 超时保护，超时则用已生成片段或兜底短总结
+            async for chunk in _astream_chunks(host_llm, summary_prompt, 10.0):
                 piece = chunk.content
                 text = piece if isinstance(piece, str) else str(piece or "")
                 if not text:
@@ -375,6 +422,10 @@ async def run_multi_discussion(
                 )
 
             summary_text = "".join(summary_parts).strip()
+            if not summary_text:
+                # 总结阶段超时且未生成任何内容，给出兜底短总结，避免前端空白
+                summary_text = "本次讨论已结束，感谢各位嘉宾的精彩观点。"
+
             # 落库：PostgreSQL 仍存完整总结（权威数据）；再推正式 message 事件
             summary_msg = await repo.add_message(
                 discussion_id,
@@ -389,8 +440,24 @@ async def run_multi_discussion(
             if disc:
                 await repo.update_status(disc, "completed", ended_at=utcnow())
             await _publish_status(discussion_id, "completed")
-        except Exception:
+        except Exception as exc:
             logger.exception("multi discussion failed: %s", discussion_id)
+            try:
+                # 用独立 session 记录 discussion.error 审计事件，
+                # 避免当前 session 因异常处于不可用状态导致审计丢失
+                async with async_session_factory() as audit_session:
+                    audit_repo = AuditRepository(audit_session)
+                    await audit_repo.record(
+                        event_type="discussion.error",
+                        level="P1",
+                        discussion_id=discussion_id,
+                        payload={"error": str(exc), "topic": topic},
+                    )
+                    await audit_session.commit()
+            except Exception:
+                logger.exception(
+                    "failed to record discussion error audit: %s", discussion_id
+                )
             disc = await repo.find_by_id(discussion_id)
             if disc:
                 await repo.update_status(disc, "error", ended_at=utcnow())
