@@ -29,10 +29,13 @@ async def create_discussion(
 async def list_discussions(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
+    search: str | None = Query(default=None),
     user_id: str = Depends(require_user),
     svc: DiscussionService = Depends(get_discussion_service),
 ) -> Result:
-    items, total, has_more = await svc.list_discussions(user_id, page, page_size)
+    items, total, has_more = await svc.list_discussions(
+        user_id, page, page_size, search=search
+    )
     return Result.ok(
         {
             "items": items,
