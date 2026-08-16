@@ -51,10 +51,10 @@ class DiscussionService:
         return self._to_response(disc, agents)
 
     async def list_discussions(
-        self, owner_id: str, page: int, page_size: int
+        self, owner_id: str, page: int, page_size: int, search: str | None = None
     ) -> tuple[list[DiscussionResponse], int, bool]:
         items, total = await self.repo.list_by_owner(
-            uuid.UUID(owner_id), page, page_size
+            uuid.UUID(owner_id), page, page_size, search=search
         )
         result = []
         for disc in items:

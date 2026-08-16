@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.discussion import Discussion
@@ -47,12 +47,20 @@ class DiscussionRepository:
         return result.scalar_one_or_none()
 
     async def list_by_owner(
-        self, owner_id: uuid.UUID, page: int, page_size: int
+        self, owner_id: uuid.UUID, page: int, page_size: int, search: str | None = None
     ) -> tuple[list[Discussion], int]:
+        # 讨论列表：支持按 topic 模糊搜索（前端搜索框用）
         base = select(Discussion).where(
             Discussion.deleted_at.is_(None),
             Discussion.owner_id == owner_id,
         )
+        if search:
+            base = base.where(
+                or_(
+                    Discussion.topic.ilike(f"%{search}%"),
+                    Discussion.status.ilike(f"%{search}%"),
+                )
+            )
         total = (
             await self.session.execute(
                 select(func.count()).select_from(base.subquery())

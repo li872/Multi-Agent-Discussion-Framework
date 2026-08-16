@@ -3,6 +3,7 @@
 // - 手动创建：POST /characters → 立刻 ready
 // - AI 生成：POST /characters/generate → 先 generating，后台 LLM 写 SKILL.md
 // - 列表里若有 generating，定时 GET /characters 刷新，直到变成 ready/error
+// - 搜索：前端输入框 → 300ms 防抖 → 请求 GET /characters?search=xxx
 
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
@@ -26,24 +27,32 @@ export default function Characters() {
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [search, setSearch] = useState('')
 
-  async function refreshList() {
-    const res = await api.get<ApiResult<{ items: Character[] }>>('/characters')
+  async function refreshList(q = '') {
+    const params = q ? `?search=${encodeURIComponent(q)}` : ''
+    const res = await api.get<ApiResult<{ items: Character[] }>>(
+      `/characters${params}`,
+    )
     setCharacters(res.data.data.items || [])
   }
 
+  // 搜索防抖：300ms 内不再输入才发请求，避免连续按键时频繁请求后端
   useEffect(() => {
-    refreshList().catch(() => setError('加载角色失败'))
-  }, [])
+    const timer = setTimeout(() => {
+      refreshList(search).catch(() => setError('加载角色失败'))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
 
   useEffect(() => {
     const hasGenerating = characters.some((c) => c.status === 'generating')
     if (!hasGenerating) return
     const timer = setInterval(() => {
-      refreshList().catch(() => {})
+      refreshList(search).catch(() => {})
     }, 3000)
     return () => clearInterval(timer)
-  }, [characters])
+  }, [characters, search])
 
   async function onCreate(e: FormEvent) {
     e.preventDefault()
@@ -62,7 +71,7 @@ export default function Characters() {
       })
       setName('')
       setDescription('')
-      await refreshList()
+      await refreshList(search)
     } catch {
       setError('创建失败（名字可能重复，或后端报错）')
     } finally {
@@ -84,7 +93,7 @@ export default function Characters() {
       })
       setName('')
       setDescription('')
-      await refreshList()
+      await refreshList(search)
     } catch {
       setError('生成失败（名字可能重复，或 LLM/后端报错）')
     } finally {
@@ -150,7 +159,16 @@ export default function Characters() {
         </div>
       </form>
 
-      {error && <p className="error\">{error}</p>}
+      <div className="row" style={{ marginTop: 16, marginBottom: 8 }}>
+        <input
+          placeholder="搜索角色名或描述"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ flex: 1, maxWidth: 400 }}
+        />
+      </div>
+
+      {error && <p className="error">{error}</p>}
       {characters.length === 0 && !error && <p>暂无角色</p>}
       <ul className="checklist">
         {characters.map((c) => (

@@ -15,15 +15,23 @@ export default function Gallery() {
   const [characters, setCharacters] = useState<Character[]>([])
   const [error, setError] = useState('')
   const [copying, setCopying] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
-  async function refresh() {
-    const res = await api.get<ApiResult<{ items: Character[] }>>('/characters/gallery')
+  async function refresh(q = '') {
+    const params = q ? `?search=${encodeURIComponent(q)}` : ''
+    const res = await api.get<ApiResult<{ items: Character[] }>>(
+      `/characters/gallery${params}`,
+    )
     setCharacters(res.data.data.items || [])
   }
 
+  // 搜索防抖：300ms 防抖后请求 GET /characters/gallery?search=xxx
   useEffect(() => {
-    refresh().catch(() => setError('加载画廊失败'))
-  }, [])
+    const timer = setTimeout(() => {
+      refresh(search).catch(() => setError('加载画廊失败'))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
 
   async function onCopy(id: string, name: string) {
     setCopying(id)
@@ -46,6 +54,14 @@ export default function Gallery() {
         <LogoutButton />
       </div>
       <h1>公开画廊</h1>
+      <div className="row" style={{ marginTop: 16, marginBottom: 8 }}>
+        <input
+          placeholder="搜索公开角色名或描述"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ flex: 1, maxWidth: 400 }}
+        />
+      </div>
       {error && <p className="error">{error}</p>}
       {characters.length === 0 && !error && <p>暂无公开角色</p>}
       <ul className="checklist">
