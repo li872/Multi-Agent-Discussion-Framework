@@ -44,10 +44,6 @@
     --shadow:
       rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
   }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
 }
 
 #root {
@@ -110,7 +106,6 @@ code {
   background: var(--code-bg);
 }
 
-/* 业务页面布局（保留上面 Vite 原有样式，只追加） */
 .page {
   width: 100%;
   max-width: 480px;
@@ -188,187 +183,7 @@ code {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
-}
-
-.messages {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.bubble {
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px 14px;
-  text-align: left;
-}
-
-.bubble header {
-  display: flex;
-  justify-content: space-between;
   gap: 8px;
-  font-size: 13px;
-  color: var(--text);
-  margin-bottom: 6px;
-}
-
-.bubble p {
-  margin: 0;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  color: var(--text-h);
-}
-
-.page h1 {
-  font-size: 32px;
-  margin: 16px 0 20px;
-}
-
-.bubble.user {
-  border-color: var(--accent-border);
-  background: var(--accent-bg);
-}
-
-.composer {
-  display: flex;
-  gap: 8px;
-  margin-top: 16px;
-  margin-bottom: 24px;
-}
-
-.composer input {
-  flex: 1;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font: inherit;
-  background: var(--bg);
-  color: var(--text-h);
-}
-
-.composer button {
-  padding: 10px 16px;
-  border: none;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  cursor: pointer;
-}
-
-.composer button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* 主持人气泡 */
-.bubble.host {
-  background: #f5efe4;
-  border-color: #d8cbb7;
-}
-
-/* 内部˼考：虚线框 + б体，和正ʽ发言区分（参考项Ŀͬ类˼·） */
-.bubble.thought {
-  background: #f9f4e9;
-  border: 2px dashed #d8cbb7;
-  color: #6d6254;
-}
-
-.bubble.thought p {
-  font-style: italic;
-  color: #6d6254;
-}
-
-.bubble-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.badge {
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-weight: 500;
-}
-
-.thought-badge {
-  color: #6d6254;
-  background: #f0e6d4;
-}
-
-.speak-badge {
-  color: #185f51;
-  background: rgba(32, 115, 98, 0.12);
-  border: 1px solid rgba(32, 115, 98, 0.2);
-}
-
-.skill-editor {
-  width: 100%;
-  min-height: 420px;
-  box-sizing: border-box;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-family: var(--mono);
-  font-size: 14px;
-  line-height: 1.45;
-  background: var(--code-bg);
-  color: var(--text-h);
-  resize: vertical;
-}
-
-.skill-layout {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 16px;
-  text-align: left;
-  margin-top: 16px;
-}
-
-.skill-tree ul {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0 0;
-}
-
-.skill-tree button {
-  width: 100%;
-  text-align: left;
-  font-size: 13px;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-h);
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.skill-tree button.active,
-.skill-tree button:hover {
-  background: var(--accent-bg);
-  border-color: var(--accent-border);
-}
-
-.skill-monaco {
-  margin-top: 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.topic-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.topic-row input {
-  flex: 1;
 }
 
 .quote {
@@ -379,7 +194,11 @@ code {
   border-left: 3px solid var(--accent-border);
 }
 
-/* ����������ҵ��ҳͳһ��������Ȩ�� Layout */
+.page h1 {
+  font-size: 32px;
+  margin: 16px 0 20px;
+}
+
 .app-shell {
   min-height: 100svh;
   display: flex;
@@ -427,11 +246,63 @@ code {
   flex: 1;
 }
 
-.rich-text {
-  text-align: left;
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
 }
 
-.rich-text p {
-  margin: 0.35em 0;
-  white-space: pre-wrap;
+.stat-grid .card strong {
+  font-size: 28px;
+  color: var(--text-h);
+}
+
+.status-pill {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.status-pill.healthy,
+.status-pill.enabled,
+.status-pill.completed {
+  color: #185f51;
+  background: rgba(32, 115, 98, 0.12);
+}
+
+.status-pill.unhealthy,
+.status-pill.disabled {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.12);
+}
+
+.status-pill.degraded,
+.status-pill.P1,
+.status-pill.running {
+  color: #b54708;
+  background: rgba(181, 71, 8, 0.12);
+}
+
+.status-pill.P0 {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.16);
+}
+
+.status-pill.P2,
+.status-pill.not_configured {
+  color: var(--text);
+}
+
+.app-nav button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
 }

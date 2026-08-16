@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { auditApi } from '../api/client'
+import { auditApi, formatTs } from '../api/client'
 import type { ApiResult } from '../api/client'
 
 type AuditEvent = {
@@ -19,7 +18,6 @@ type EventList = {
 }
 
 export default function Events() {
-  const navigate = useNavigate()
   const [items, setItems] = useState<AuditEvent[]>([])
   const [total, setTotal] = useState(0)
   const [error, setError] = useState('')
@@ -37,20 +35,8 @@ export default function Events() {
     load().catch(() => setError('加载审计事件失败（检查 ADMIN_TOKEN 与主后端）'))
   }, [level])
 
-  function onLogout() {
-    localStorage.removeItem('audit_token')
-    localStorage.removeItem('audit_admin')
-    navigate('/login')
-  }
-
   return (
     <div className="page wide">
-      <div className="row">
-        <span>MADF 审计</span>
-        <button type="button" onClick={onLogout}>
-          退出
-        </button>
-      </div>
       <h1>审计事件</h1>
       <div className="row">
         <select value={level} onChange={(e) => setLevel(e.target.value)}>
@@ -66,8 +52,8 @@ export default function Events() {
         {items.map((e) => (
           <li key={e.id}>
             <strong>{e.event_type}</strong>
-            <span> · {e.level}</span>
-            <span className="muted"> · {e.created_at || ''}</span>
+            <span className={`status-pill ${e.level}`}>{e.level}</span>
+            <span className="muted"> · {formatTs(e.created_at)}</span>
             {e.payload && Object.keys(e.payload).length > 0 && (
               <pre className="quote">{JSON.stringify(e.payload, null, 2)}</pre>
             )}
