@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
@@ -18,6 +18,7 @@ type Message = {
   message_type: string
   content: string
   confidence: number | null
+  created_at: string
 }
 
 /** 把入库的 think 原文尽量收成可读短句（学习版存的是 decision=... 字符串） */
@@ -49,7 +50,7 @@ export default function DiscussionRoom() {
   const [live, setLive] = useState(false)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
-
+  const lastTsRef = useRef<string>('')
   async function loadOnce() {
     if (!id) return
     const [dRes, mRes] = await Promise.all([
@@ -64,141 +65,197 @@ export default function DiscussionRoom() {
     loadOnce().catch(() => setError('加载讨论失败'))
   }, [id])
 
+  // 已加载/收到的最新消息时间戳，作为 SSE 重连时的 after 断点
+  useEffect(() => {
+    if (messages.length > 0) {
+      lastTsRef.current = messages[messages.length - 1].created_at
+    }
+  }, [messages])
+
   useEffect(() => {
     if (!id) return
-    // SSE：浏览器 EventSource 长连接；后端把 Redis 频道转成 event/data 推过来
-    const es = new EventSource(`/api/v1/discussions/${id}/stream`)
-    setLive(true)
+    let es: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-    // 正式消息（已写入 PostgreSQL）：思考/介入/完整发言等
-    es.addEventListener('message', (ev) => {
-      try {
-        const msg = JSON.parse(ev.data) as Message
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev
-          // 流式结束后：用正式 message 替换 temp_id=stream-... 的临时气泡，避免两条发言
-          // 按 message_type + round_number 匹配，适用于 agent_speak 和 host_summary
-          const idx = prev.findIndex(
-            (m) =>
-              m.id.startsWith('stream-') &&
-              m.message_type === msg.message_type &&
-              m.round_number === msg.round_number,
-          )
-          if (idx >= 0) {
-            const next = [...prev]
-            next[idx] = msg
-            return next
+    const connect = () => {
+      // 重连时带上 lastTsRef.current，后端从 PostgreSQL 补发断点之后消息
+      const after = lastTsRef.current
+      const url = `/api/v1/discussions/${id}/stream${
+        after ? `?after=${encodeURIComponent(after)}` : ''
+      }`
+      es = new EventSource(url)
+      setLive(true)
+
+      // 正式消息（已写入 PostgreSQL）：思考/介入/完整发言/总结等
+      es.addEventListener('message', (ev) => {
+        try {
+          const msg = JSON.parse(ev.data) as Message
+          // 更新最后收到的时间戳，作为重连断点
+          if (msg.created_at && msg.created_at > (lastTsRef.current || '')) {
+            lastTsRef.current = msg.created_at
           }
-          return [...prev, msg]
-        })
-      } catch {
-        // ignore bad payload
-      }
-    })
-
-    // 发言开始：先插一个空气泡（React 状态），后续 chunk 往里追加
-    es.addEventListener('agent_speak_start', (ev) => {
-      try {
-        const data = JSON.parse(ev.data) as {
-          temp_id: string
-          agent_name: string
-          round: number
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === msg.id)) return prev
+            // 流式结束后：用正式 message 替换 temp_id=stream-... 的临时气泡，避免两条发言
+            // 按 message_type + round_number 匹配，适用于 agent_speak 和 host_summary
+            const idx = prev.findIndex(
+              (m) =>
+                m.id.startsWith('stream-') &&
+                m.message_type === msg.message_type &&
+                m.round_number === msg.round_number,
+            )
+            if (idx >= 0) {
+              const next = [...prev]
+              next[idx] = msg
+              return next
+            }
+            return [...prev, msg]
+          })
+        } catch {
+          // ignore bad payload
         }
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === data.temp_id)) return prev
-          return [
+      })
+
+      // 发言开始：先插一个空气泡（React 状态），后续 chunk 往里追加
+      es.addEventListener('agent_speak_start', (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as {
+            temp_id: string
+            agent_name: string
+            round: number
+          }
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === data.temp_id)) return prev
+            return [
+              ...prev,
+              {
+                id: data.temp_id,
+                round_number: data.round,
+                agent_name: data.agent_name,
+                message_type: 'agent_speak',
+                content: '',
+                confidence: null,
+                created_at: '',
+              },
+            ]
+          })
+        } catch {
+          // ignore
+        }
+      })
+
+      // 发言增量：每个 chunk 拼到对应 temp_id 气泡（打字机效果）
+      es.addEventListener('agent_speak_chunk', (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as {
+            temp_id: string
+            content: string
+          }
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === data.temp_id
+                ? { ...m, content: m.content + data.content }
+                : m,
+            ),
+          )
+        } catch {
+          // ignore
+        }
+      })
+
+      // 主持人总结开始：先插一个空气泡（React 状态），后续 chunk 往里追加
+      es.addEventListener('host_summary_start', (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as {
+            temp_id: string
+            agent_name: string
+            round: number
+          }
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === data.temp_id)) return prev
+            return [
+              ...prev,
+              {
+                id: data.temp_id,
+                round_number: data.round,
+                agent_name: data.agent_name,
+                message_type: 'host_summary',
+                content: '',
+                confidence: null,
+                created_at: '',
+              },
+            ]
+          })
+        } catch {
+          // ignore
+        }
+      })
+
+      // 主持人总结增量：每个 chunk 拼到对应 temp_id 气泡（打字机效果）
+      es.addEventListener('host_summary_chunk', (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as { temp_id: string; content: string }
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === data.temp_id
+                ? { ...m, content: m.content + data.content }
+                : m,
+            ),
+          )
+        } catch {
+          // ignore
+        }
+      })
+
+      // 重连追赶摘要：消息过多时后端只发最近 20 条 + 提示
+      es.addEventListener('catchup_summary', (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as {
+            message: string
+            total: number
+            skipped: number
+          }
+          setMessages((prev) => [
             ...prev,
             {
-              id: data.temp_id,
-              round_number: data.round,
-              agent_name: data.agent_name,
-              message_type: 'agent_speak',
-              content: '',
+              id: `catchup-summary-${Date.now()}`,
+              round_number: 0,
+              agent_name: '系统',
+              message_type: 'catchup_summary',
+              content: `${data.message}（共 ${data.total} 条，已省略 ${data.skipped} 条）`,
               confidence: null,
+              created_at: new Date().toISOString(),
             },
-          ]
-        })
-      } catch {
-        // ignore
-      }
-    })
-
-    // 发言增量：每个 chunk 拼到对应 temp_id 气泡（打字机效果）
-    es.addEventListener('agent_speak_chunk', (ev) => {
-      try {
-        const data = JSON.parse(ev.data) as {
-          temp_id: string
-          content: string
+          ])
+        } catch {
+          // ignore
         }
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === data.temp_id
-              ? { ...m, content: m.content + data.content }
-              : m,
-          ),
-        )
-      } catch {
-        // ignore
-      }
-    })
+      })
 
-    // 主持人总结开始：先插一个空气泡（React 状态），后续 chunk 往里追加
-    es.addEventListener('host_summary_start', (ev) => {
-      try {
-        const data = JSON.parse(ev.data) as {
-          temp_id: string
-          agent_name: string
-          round: number
+      es.addEventListener('status', (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as { status: string }
+          setDiscussion((d) => (d ? { ...d, status: data.status } : d))
+        } catch {
+          // ignore
         }
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === data.temp_id)) return prev
-          return [
-            ...prev,
-            {
-              id: data.temp_id,
-              round_number: data.round,
-              agent_name: data.agent_name,
-              message_type: 'host_summary',
-              content: '',
-              confidence: null,
-            },
-          ]
-        })
-      } catch {
-        // ignore
-      }
-    })
+      })
 
-    // 主持人总结增量：每个 chunk 拼到对应 temp_id 气泡（打字机效果）
-    es.addEventListener('host_summary_chunk', (ev) => {
-      try {
-        const data = JSON.parse(ev.data) as { temp_id: string; content: string }
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === data.temp_id
-              ? { ...m, content: m.content + data.content }
-              : m,
-          ),
-        )
-      } catch {
-        // ignore
+      es.onerror = () => {
+        setLive(false)
+        es?.close()
+        // 3 秒后重连，携带 lastTsRef.current 作为 after
+        reconnectTimer = setTimeout(connect, 3000)
       }
-    })
 
-    es.addEventListener('status', (ev) => {
-      try {
-        const data = JSON.parse(ev.data) as { status: string }
-        setDiscussion((d) => (d ? { ...d, status: data.status } : d))
-      } catch {
-        // ignore
-      }
-    })
+      es.onopen = () => setLive(true)
+    }
 
-    es.onerror = () => setLive(false)
-    es.onopen = () => setLive(true)
+    connect()
 
     return () => {
-      es.close()
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      es?.close()
       setLive(false)
     }
   }, [id])
