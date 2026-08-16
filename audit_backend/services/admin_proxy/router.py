@@ -1,4 +1,4 @@
-# 审计员登录后，把 /api/v1/admin/* 原样转到主后端，带上 X-Admin-Token
+# 审计员登录后，签发短时 admin JWT，转发 /api/v1/admin/*
 from __future__ import annotations
 
 import httpx
@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from audit_backend.config import settings
 from audit_backend.deps import require_audit_admin
+from backend.middleware.admin_auth import issue_admin_jwt
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin-proxy"])
 
@@ -16,15 +17,15 @@ async def proxy_admin(
     request: Request,
     _: str = Depends(require_audit_admin),
 ) -> Response:
-    if not settings.admin_token:
+    if not (settings.admin_jwt_secret or settings.admin_token):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ADMIN_TOKEN 未配置",
+            detail="ADMIN_JWT_SECRET 未配置",
         )
     url = f"{settings.main_api_base.rstrip('/')}/api/v1/admin/{path}"
     body = await request.body()
     headers = {
-        "X-Admin-Token": settings.admin_token,
+        "Authorization": f"Bearer {issue_admin_jwt()}",
         "Content-Type": request.headers.get("content-type", "application/json"),
     }
     try:

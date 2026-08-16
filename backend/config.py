@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     # ── Admin ──
     # 管理后台/审计后台通过 X-Admin-Token 请求头访问主后端管理接口
     # 生产环境必须在 .env 中设置为随机强密码，切勿使用默认值
+    admin_jwt_secret: str = ""
     admin_token: str = ""
 
 

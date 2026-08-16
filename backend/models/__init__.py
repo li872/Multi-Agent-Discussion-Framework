@@ -4,6 +4,7 @@ from backend.models.discussion import Discussion
 from backend.models.discussion_agent import DiscussionAgent
 from backend.models.discussion_message import DiscussionMessage
 from backend.models.skill import Skill
+from backend.models.token_usage import TokenUsage
 from backend.models.user import User
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "DiscussionAgent",
     "DiscussionMessage",
     "AuditEvent",
+    "TokenUsage",
 ]

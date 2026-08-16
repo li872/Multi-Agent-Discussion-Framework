@@ -17,6 +17,7 @@ class AuditSettings(BaseSettings):
 
     # 主系统管理接口，与 backend.config.admin_token 使用同一把钥匙
     main_api_base: str = "http://localhost:8000"
+    admin_jwt_secret: str = ""
     admin_token: str = ""
 
 

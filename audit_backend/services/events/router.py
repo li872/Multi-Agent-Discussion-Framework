@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from audit_backend.config import settings
 from audit_backend.core.responses import Result
 from audit_backend.deps import require_audit_admin
+from backend.middleware.admin_auth import issue_admin_jwt
 
 router = APIRouter(prefix="/api/v1/audit", tags=["audit-events"])
 
@@ -21,10 +22,10 @@ async def list_events(
     offset: int = Query(default=0, ge=0),
     _: str = Depends(require_audit_admin),
 ) -> Result:
-    if not settings.admin_token:
+    if not (settings.admin_jwt_secret or settings.admin_token):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ADMIN_TOKEN 未配置，无法读取主系统审计事件",
+            detail="ADMIN_JWT_SECRET 未配置，无法读取主系统审计事件",
         )
     params: dict = {"limit": limit, "offset": offset}
     if user_id:
@@ -41,7 +42,7 @@ async def list_events(
             resp = await client.get(
                 url,
                 params=params,
-                headers={"X-Admin-Token": settings.admin_token},
+                headers={"Authorization": f"Bearer {issue_admin_jwt()}"},
             )
     except httpx.HTTPError as e:
         raise HTTPException(

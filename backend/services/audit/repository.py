@@ -79,6 +79,9 @@ class AuditRepository:
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    async def get_by_id(self, event_id: str | uuid.UUID) -> AuditEvent | None:
+        return await self._get_by_id(event_id)
+
     async def _get_by_id(self, event_id: str | uuid.UUID) -> AuditEvent | None:
         stmt = select(AuditEvent).where(AuditEvent.id == self._to_uuid(event_id))
         result = await self.session.execute(stmt)
