@@ -28,3 +28,14 @@ async def publish_discussion_event(
     payload = json.dumps({"event": event, "data": data}, ensure_ascii=False)
     await r.publish(channel, payload)
 
+
+async def publish_generation_event(
+    skill_id: str,
+    data: dict,
+) -> None:
+    # Skill 生成进度事件：与 discussion 事件使用不同 channel，避免串流
+    r = await _get_redis()
+    channel = f"generation:{skill_id}:events"
+    payload = json.dumps({"event": "generation_progress", "data": data}, ensure_ascii=False)
+    await r.publish(channel, payload)
+

@@ -9,6 +9,7 @@ import uuid
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_engine.skill_gen.generation_service import run_full_skill_generation
 from agent_engine.skill_gen.mini_generate import run_mini_skill_generation
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
@@ -87,6 +88,34 @@ class CharacterService:
                 skill_name=skill_name,
                 display_name=display_name.replace("-perspective", ""),
                 description=description,
+            )
+        )
+        return self._to_response(skill)
+
+    async def generate_full_skill(self, user_id: str, skill_id: str) -> CharacterResponse:
+        """完整 Nuwa 管线生成：对已有角色触发 deepagent + Tavily 多阶段生成。"""
+        skill = await self.repo.find_by_id(uuid.UUID(skill_id))
+        if not skill:
+            raise BusinessException(ErrorCode.SKILL_NOT_FOUND)
+        if str(skill.owner_id) != user_id:
+            raise BusinessException(ErrorCode.FORBIDDEN, "Not your character")
+        if skill.status == "generating":
+            raise BusinessException(
+                ErrorCode.DISCUSSION_INVALID_STATUS,
+                "Character is already generating",
+            )
+
+        display_name = skill.name.replace("-perspective", "")
+        await self.repo.update(skill, status="generating")
+
+        # 后台运行完整 Nuwa 管线；HTTP 立即返回，前端通过 SSE 看进度
+        asyncio.create_task(
+            run_full_skill_generation(
+                skill_id=skill.id,
+                owner_id=user_id,
+                skill_name=skill.name,
+                display_name=display_name,
+                description=skill.description or "",
             )
         )
         return self._to_response(skill)
