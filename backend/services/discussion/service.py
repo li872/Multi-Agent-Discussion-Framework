@@ -8,6 +8,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_engine.discussion.multi_orchestrator import AgentSpec, run_multi_discussion
+from agent_engine.llm import get_chat_llm
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
 from backend.services.audit import AuditRepository
@@ -18,9 +19,22 @@ from backend.services.discussion.schemas import (
     DiscussionCreateRequest,
     DiscussionResponse,
     MessageResponse,
+    TopicGenerateResponse,
 )
 from backend.services.realtime.publisher import publish_discussion_event
 from backend.services.user.repository import UserRepository
+
+# LLM 失败或超时后用静态主题池兜底，保证前端「换一个」始终有结果
+DEFAULT_TOPICS = [
+    "创新与执行哪个更重要",
+    "长期主义是否适合所有创业者",
+    "AI 会取代哪些知识工作",
+    "开源与商业化如何平衡",
+    "远程办公是否提高创造力",
+    "第一性原理如何落地到产品决策",
+    "增长黑客与品牌建设谁更优先",
+    "技术债应该何时偿还",
+]
 
 
 class DiscussionService:
@@ -29,6 +43,35 @@ class DiscussionService:
         self.repo = DiscussionRepository(session)
         self.char_repo = CharacterRepository(session)
         self.audit = AuditRepository(session)
+
+    async def generate_topic(self) -> TopicGenerateResponse:
+        """用 LLM 生成约 30 字讨论主题；超时/失败则从静态池随机取一条。
+
+        技术：ChatOpenAI 直调（temperature≈1.0，timeout=8s），不走 deepagent 图。
+        """
+        import random
+
+        try:
+            llm = get_chat_llm(temperature=1.0, timeout=8)
+            prompt = (
+                "请生成一个适合多人圆桌讨论的主题，要求：\n"
+                "1. 中文，大约 20-35 字\n"
+                "2. 有观点张力，便于正反双方发言\n"
+                "3. 只输出主题本身，不要引号、编号或解释"
+            )
+            raw = (await llm.ainvoke(prompt)).content
+            topic = (raw if isinstance(raw, str) else str(raw)).strip()
+            topic = topic.strip("「」『』\"'").splitlines()[0].strip()
+            if 4 <= len(topic) <= 80:
+                return TopicGenerateResponse(topic=topic, source="llm")
+        except Exception:
+            # key 未配置、网络抖动、超时：静默回退
+            pass
+
+        return TopicGenerateResponse(
+            topic=random.choice(DEFAULT_TOPICS),
+            source="fallback",
+        )
 
     async def create_discussion(
         self, owner_id: str, req: DiscussionCreateRequest

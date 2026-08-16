@@ -40,3 +40,9 @@ class MessageResponse(BaseModel):
 
 class InterveneRequest(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
+
+
+class TopicGenerateResponse(BaseModel):
+    # AI 生成讨论主题：topic 约 30 字；source 标明 llm 或 fallback
+    topic: str
+    source: str
