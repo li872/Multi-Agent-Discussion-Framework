@@ -9,6 +9,7 @@ type Character = {
   name: string
   description: string
   status: string
+  quotes?: string[]
 }
 
 export default function Gallery() {
@@ -69,7 +70,12 @@ export default function Gallery() {
           <li key={c.id}>
             <strong>{c.name}</strong>
             <span> · {c.status}</span>
-            {c.description ? <p>{c.description}</p> : null}
+            {c.description ? (
+              <p className="quote">{c.description}</p>
+            ) : null}
+            {c.quotes && c.quotes.length > 1 && (
+              <p className="muted">另有 {c.quotes.length - 1} 条引用语</p>
+            )}
             <button
               type="button"
               disabled={copying === c.id}

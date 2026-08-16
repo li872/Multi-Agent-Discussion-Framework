@@ -106,7 +106,7 @@ class CharacterService:
             },
         )
         await self.session.commit()
-        return self._to_response(skill)
+        return await self._to_response(skill)
 
     async def generate_character(
         self, owner_id: str, name: str, description: str = ""
@@ -164,7 +164,7 @@ class CharacterService:
                 description=description,
             )
         )
-        return self._to_response(skill)
+        return await self._to_response(skill)
 
     async def generate_full_skill(self, user_id: str, skill_id: str) -> CharacterResponse:
         """完整 Nuwa 管线生成：对已有角色触发 deepagent + Tavily 多阶段生成。"""
@@ -205,7 +205,7 @@ class CharacterService:
                 description=skill.description or "",
             )
         )
-        return self._to_response(skill)
+        return await self._to_response(skill)
 
     async def get_recommendations(self, owner_id: str) -> RecommendationsResponse:
         """人物推荐：优先用 LLM 生成 6 个人名，失败或不足时用兜底池补齐。"""
@@ -250,8 +250,9 @@ class CharacterService:
         skills, total = await self.repo.list_by_owner(
             uuid.UUID(owner_id), page, page_size, search
         )
+        items = await asyncio.gather(*[self._to_response(s) for s in skills])
         return CharacterListResponse(
-            items=[self._to_response(s) for s in skills],
+            items=list(items),
             total=total,
             page=page,
             page_size=page_size,
@@ -262,8 +263,9 @@ class CharacterService:
         self, page: int, page_size: int, search: str | None
     ) -> CharacterListResponse:
         skills, total = await self.repo.list_public(page, page_size, search)
+        items = await asyncio.gather(*[self._to_response(s) for s in skills])
         return CharacterListResponse(
-            items=[self._to_response(s) for s in skills],
+            items=list(items),
             total=total,
             page=page,
             page_size=page_size,
@@ -320,14 +322,14 @@ class CharacterService:
             },
         )
         await self.session.commit()
-        return self._to_response(skill)
+        return await self._to_response(skill)
 
     async def get_character(self, skill_id: str, user_id: str = "") -> CharacterResponse:
         skill = await self.repo.find_by_id(uuid.UUID(skill_id))
         if not skill:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND)
         self._ensure_can_read(skill, user_id)
-        return self._to_response(skill)
+        return await self._to_response(skill)
 
     async def update_character(self, skill_id: str, user_id: str, **kwargs) -> CharacterResponse:
         skill = await self.repo.find_by_id(uuid.UUID(skill_id))
@@ -350,7 +352,7 @@ class CharacterService:
                 },
             )
             await self.session.commit()
-        return self._to_response(skill)
+        return await self._to_response(skill)
 
     async def delete_character(self, skill_id: str, owner_id: str) -> None:
         skill = await self.repo.find_by_id(uuid.UUID(skill_id))
@@ -419,17 +421,43 @@ class CharacterService:
             raise BusinessException(ErrorCode.FORBIDDEN)
 
     @staticmethod
-    def _to_response(skill) -> CharacterResponse:
+    def _extract_quotes(content: str, limit: int = 5) -> list[str]:
+        """从 SKILL.md 提取以 > 开头的引用语，最多 limit 条。"""
+        quotes: list[str] = []
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith(">"):
+                continue
+            quote = stripped.lstrip(">").strip()
+            if quote:
+                quotes.append(quote)
+            if len(quotes) >= limit:
+                break
+        return quotes
+
+    async def _to_response(self, skill) -> CharacterResponse:
+        # 读磁盘 SKILL.md 提取引用语；文件缺失时退回数据库 description
+        quotes: list[str] = []
+        try:
+            content = await self.fm.read_file(
+                str(skill.owner_id), skill.name, "SKILL.md"
+            )
+            quotes = self._extract_quotes(content)
+        except Exception:
+            quotes = []
+
+        description = quotes[0] if quotes else (skill.description or "")
         return CharacterResponse(
             id=str(skill.id),
             owner_id=str(skill.owner_id),
             name=skill.name.replace("-perspective", ""),
-            description=skill.description,
+            description=description,
             tags=skill.tags or [],
             is_public=skill.is_public,
             status=skill.status,
             created_at=skill.created_at.isoformat(),
             updated_at=skill.updated_at.isoformat(),
+            quotes=quotes,
         )
 
 

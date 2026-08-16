@@ -18,6 +18,7 @@ type Character = {
   description: string
   status: string
   is_public: boolean
+  quotes?: string[]
 }
 
 export default function Characters() {
@@ -178,7 +179,12 @@ export default function Characters() {
             {c.status === 'generating' && (
               <span className="muted">（后台生成中，约数十秒）</span>
             )}
-            {c.description ? <p>{c.description}</p> : null}
+            {c.description ? (
+              <p className="quote">{c.description}</p>
+            ) : null}
+            {c.quotes && c.quotes.length > 1 && (
+              <p className="muted">另有 {c.quotes.length - 1} 条引用语</p>
+            )}
             <div className="row">
               <Link to={`/characters/${c.id}/skill`}>查看 / 编辑 Skill</Link>
               <button
