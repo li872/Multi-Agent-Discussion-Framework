@@ -1,8 +1,9 @@
 # 前端 React 容器：构建后由 Nginx 托管，并反向代理 /api 到后端
 # 技术：Vite build + Nginx 静态托管 + 反向代理
+# 使用阿里云镜像源，避免国内拉取 docker.io 官方镜像失败
 
 # 阶段 1：构建
-FROM node:20-alpine AS builder
+FROM registry.cn-hangzhou.aliyuncs.com/library/node:20-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -10,7 +11,7 @@ COPY . .
 RUN npm run build
 
 # 阶段 2：运行
-FROM nginx:alpine
+FROM registry.cn-hangzhou.aliyuncs.com/library/nginx:alpine
 
 # Nginx 配置：托管 dist/，并把 /api 反向代理到后端服务
 RUN cat > /etc/nginx/conf.d/default.conf <<'EOF'
