@@ -161,28 +161,76 @@ jobs:
           docker build -t madf-audit-frontend ./audit-frontend
       - name: Compose up infra + APIs
         run: |
+          set -euxo pipefail
           docker network create madf-ci || true
           docker run -d --name madf-pg --network madf-ci --network-alias postgres \
             -e POSTGRES_USER=madf -e POSTGRES_PASSWORD=madf -e POSTGRES_DB=madf postgres:16
           docker run -d --name madf-redis --network madf-ci --network-alias redis redis:7-alpine
-          for i in $(seq 1 30); do
-            docker exec madf-pg pg_isready -U madf && break
+
+          echo "waiting for postgres..."
+          for i in $(seq 1 60); do
+            if docker exec madf-pg pg_isready -U madf >/dev/null 2>&1; then
+              break
+            fi
             sleep 1
           done
+          docker exec madf-pg pg_isready -U madf
+
           docker run -d --name madf-api --network madf-ci -p 8000:8000 \
             -e DB_HOST=postgres -e REDIS_HOST=redis \
+            -e DB_USER=madf -e DB_PASSWORD=madf -e DB_NAME=madf \
             -e JWT_SECRET=ci-jwt -e ADMIN_JWT_SECRET=ci-admin \
             madf-backend
           docker run -d --name madf-audit-api --network madf-ci -p 8001:8001 \
             -e MAIN_API_BASE=http://madf-api:8000 \
             -e AUDIT_JWT_SECRET=ci-audit \
             madf-audit-backend
-          sleep 8
-          curl -sf http://127.0.0.1:8000/api/v1/health | grep -qi madf
-          curl -sf http://127.0.0.1:8001/api/v1/audit/health >/dev/null
+
+          echo "waiting for main API..."
+          ok=0
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:8000/api/v1/health | grep -qi madf; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != "1" ]; then
+            docker logs madf-api || true
+            docker logs madf-pg || true
+            exit 1
+          fi
+
+          echo "waiting for audit API..."
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8001/api/v1/audit/health >/dev/null; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != "1" ]; then
+            docker logs madf-audit-api || true
+            exit 1
+          fi
+
           docker run -d --name madf-web --network madf-ci -p 8080:80 madf-frontend
           docker run -d --name madf-audit-web --network madf-ci -p 8081:80 madf-audit-frontend
-          sleep 3
-          curl -sf http://127.0.0.1:8080/ | grep -qi html
-          curl -sf http://127.0.0.1:8081/ | grep -qi html
-        continue-on-error: false
+
+          echo "waiting for SPAs..."
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8080/ | grep -qi html \
+              && curl -sf http://127.0.0.1:8081/ | grep -qi html; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ok" != "1" ]; then
+            docker logs madf-web || true
+            docker logs madf-audit-web || true
+            exit 1
+          fi
+          echo "docker-smoke ok"
