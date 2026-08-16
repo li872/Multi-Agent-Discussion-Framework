@@ -310,8 +310,40 @@ async def run_multi_discussion(
                 f"讨论记录：\n{_history_text(transcript, limit=20)}\n\n"
                 f"请用中文做简短总结（80-150字），不要提AI。"
             )
-            summary = (await host_llm.ainvoke(summary_prompt)).content
-            summary_text = (summary if isinstance(summary, str) else str(summary)).strip()
+
+            # --- 主持人总结真流式（与 agent_speak 流式同技术）---
+            # 技术：LangChain ChatOpenAI.astream + Redis Pub/Sub + SSE
+            # 作用：总结文本边生成边推 chunk，前端可打字机显示；结束后再整段写入 PostgreSQL
+            summary_temp_id = f"stream-summary-{round_num + 1}"
+            await publish_discussion_event(
+                str(discussion_id),
+                "host_summary_start",
+                {
+                    "temp_id": summary_temp_id,
+                    "agent_name": "主持人总结",
+                    "round": round_num + 1,
+                },
+            )
+
+            summary_parts: list[str] = []
+            # astream：异步迭代模型输出的增量文本（每包常是若干 token，代码里叫 chunk）
+            async for chunk in host_llm.astream(summary_prompt):
+                piece = chunk.content
+                text = piece if isinstance(piece, str) else str(piece or "")
+                if not text:
+                    continue
+                summary_parts.append(text)
+                await publish_discussion_event(
+                    str(discussion_id),
+                    "host_summary_chunk",
+                    {
+                        "temp_id": summary_temp_id,
+                        "content": text,
+                    },
+                )
+
+            summary_text = "".join(summary_parts).strip()
+            # 落库：PostgreSQL 仍存完整总结（权威数据）；再推正式 message 事件
             summary_msg = await repo.add_message(
                 discussion_id,
                 round_number=round_num + 1,
