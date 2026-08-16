@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
+import { displayName } from '../lib/displayName'
 
 type Character = { id: string; name: string }
 
@@ -126,7 +127,7 @@ export default function NewDiscussion() {
                     checked={selected.includes(c.id)}
                     onChange={() => toggle(c.id)}
                   />
-                  {c.name.replace('-perspective', '')}
+                  {displayName(c.name)}
                 </label>
               </li>
             ))}

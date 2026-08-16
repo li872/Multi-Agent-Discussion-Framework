@@ -3,6 +3,8 @@ import type { FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
+import { displayName } from '../lib/displayName'
+import { RichText } from '../lib/RichText'
 
 type Discussion = {
   id: string
@@ -378,8 +380,8 @@ export default function DiscussionRoom() {
             <header>
               <strong>
                 {m.message_type === 'user_intervene'
-                  ? `观众（${m.agent_name || '我'}）`
-                  : m.agent_name || m.message_type}
+                  ? `观众（${displayName(m.agent_name) || '我'}）`
+                  : displayName(m.agent_name) || m.message_type}
               </strong>
               <span className="bubble-meta">
                 {/* 视觉区分：思考 vs 发言（对齐参考项目的「内部思考」标签思路） */}
@@ -393,11 +395,11 @@ export default function DiscussionRoom() {
                 {m.confidence != null ? ` · 置信度 ${m.confidence}` : ''}
               </span>
             </header>
-            <p>
-              {m.message_type === 'agent_think'
-                ? formatThinkText(m.content)
-                : m.content}
-            </p>
+            {m.message_type === 'agent_think' ? (
+              <p>{formatThinkText(m.content)}</p>
+            ) : (
+              <RichText text={m.content} />
+            )}
           </article>
         ))}
       </div>

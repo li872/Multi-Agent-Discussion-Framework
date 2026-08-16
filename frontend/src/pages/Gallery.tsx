@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
+import { displayName } from '../lib/displayName'
 type Character = {
   id: string
   name: string
@@ -61,7 +62,7 @@ export default function Gallery() {
       <ul className="checklist">
         {characters.map((c) => (
           <li key={c.id}>
-            <strong>{c.name}</strong>
+            <strong>{displayName(c.name)}</strong>
             <span> · {c.status}</span>
             {c.description ? (
               <p className="quote">{c.description}</p>
@@ -72,7 +73,7 @@ export default function Gallery() {
             <button
               type="button"
               disabled={copying === c.id}
-              onClick={() => onCopy(c.id, c.name)}
+              onClick={() => onCopy(c.id, displayName(c.name))}
             >
               {copying === c.id ? '复制中…' : '复制到我的角色'}
             </button>
