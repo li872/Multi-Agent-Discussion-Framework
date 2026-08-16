@@ -45,3 +45,9 @@ class UserRepository:
         await self.session.commit()
         await self.session.refresh(user)
         return user
+
+    async def update(self, user: User) -> User:
+        # 提交已修改的 User 对象；updated_at 由 ORM onupdate 自动维护
+        await self.session.commit()
+        await self.session.refresh(user)
+        return user

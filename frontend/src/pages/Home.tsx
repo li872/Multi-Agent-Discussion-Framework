@@ -31,6 +31,7 @@ export default function Home() {
     <div className="page">
       <div className="row">
         <span>MADF</span>
+        <Link to="/profile">个人中心</Link>
         <LogoutButton />
       </div>
       <h1>多智能体圆桌讨论</h1>
