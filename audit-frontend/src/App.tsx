@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Users from './pages/Users'
 import Discussions from './pages/Discussions'
 import Health from './pages/Health'
+import Characters from './pages/Characters'
 import Events from './pages/Events'
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/users" element={<Users />} />
+          <Route path="/characters" element={<Characters />} />
           <Route path="/discussions" element={<Discussions />} />
           <Route path="/health" element={<Health />} />
           <Route path="/events" element={<Events />} />
