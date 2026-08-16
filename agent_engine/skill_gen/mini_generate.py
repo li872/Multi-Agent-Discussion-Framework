@@ -42,8 +42,19 @@ async def run_mini_skill_generation(
 
     try:
         # 非流式一次拿完整 Markdown（生成质量优先；进度 SSE 以后再加）
-        raw = (await llm.ainvoke(prompt)).content
+        msg = await llm.ainvoke(prompt)
+        raw = msg.content
         content = (raw if isinstance(raw, str) else str(raw)).strip()
+        from agent_engine.token_meter import (
+            estimate_tokens_from_text,
+            extract_token_count,
+            record_token_usage,
+        )
+
+        tokens = extract_token_count(msg) or estimate_tokens_from_text(prompt, content)
+        await record_token_usage(
+            tokens=tokens, user_id=owner_id, kind="skill_generate"
+        )
         if content.startswith("```"):
             content = content.strip("`")
             if content.startswith("markdown"):
