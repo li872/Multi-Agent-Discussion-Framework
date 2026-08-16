@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { auditApi, formatTs } from '../api/client'
 import type { ApiResult, PageData } from '../api/client'
+import { auditApiBase } from '../api/base'
 
 type DiscRow = {
   id: string
@@ -28,6 +29,9 @@ export default function Discussions() {
   const [detail, setDetail] = useState<DiscDetail | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+
+  const [live, setLive] = useState(false)
+  const esRef = useRef<EventSource | null>(null)
 
   async function load() {
     const res = await auditApi.get<ApiResult<PageData<DiscRow>>>('/admin/discussions', {
@@ -64,10 +68,29 @@ export default function Discussions() {
     }
   }
 
+  function listen(id: string) {
+    esRef.current?.close()
+    const token = localStorage.getItem('audit_token') || ''
+    const url = `${auditApiBase()}/audit/discussions/${id}/stream?access_token=${encodeURIComponent(token)}`
+    const es = new EventSource(url)
+    esRef.current = es
+    setLive(true)
+    es.onerror = () => {
+      setLive(false)
+      es.close()
+    }
+  }
+
+  useEffect(() => {
+    return () => esRef.current?.close()
+  }, [])
+
   return (
     <div className="page wide">
       <h1>讨论</h1>
-      <p className="muted">共 {total} 场</p>
+      <p className="muted">
+        共 {total} 场{live ? ' · 正在旁听' : ''}
+      </p>
       {error && <p className="error">{error}</p>}
       <ul className="checklist">
         {items.map((d) => (
@@ -78,6 +101,9 @@ export default function Discussions() {
             <div className="row">
               <button type="button" onClick={() => openDetail(d.id)}>
                 详情
+              </button>
+              <button type="button" onClick={() => listen(d.id)}>
+                旁听
               </button>
               <button type="button" disabled={busy === d.id} onClick={() => remove(d.id)}>
                 删除

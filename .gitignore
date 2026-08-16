@@ -8,6 +8,7 @@ dist/
 build/
 skills/
 pg_data/
+audit_data/
 *.egg-info/
 .pytest_cache/
 .DS_Store
