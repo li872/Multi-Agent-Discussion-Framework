@@ -1,7 +1,13 @@
 # HTTP 接口
 
-from fastapi import APIRouter, Depends, Query
+import json
+import time
 
+import redis.asyncio as redis
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
+
+from backend.config import settings
 from backend.core.responses import Result
 from backend.deps import get_current_user, require_user
 from backend.services.character.schemas import (
@@ -83,6 +89,61 @@ async def copy_character(
     # 把公开画廊角色复制到当前用户（需登录）
     character = await svc.copy_character(skill_id, user_id)
     return Result.ok(character)
+
+
+@router.post("/{skill_id}/generate")
+async def generate_full_character(
+    skill_id: str,
+    user_id: str = Depends(require_user),
+    svc: CharacterService = Depends(get_character_service),
+) -> Result[CharacterResponse]:
+    # 完整 Nuwa 管线生成：对已有角色触发 deepagent + Tavily 多阶段生成
+    character = await svc.generate_full_skill(user_id, skill_id)
+    return Result.ok(character)
+
+
+@router.get("/{skill_id}/generation-progress")
+async def generation_progress(
+    skill_id: str,
+    request: Request,
+):
+    # SSE：订阅 Redis generation:{skill_id}:events 通道，推送进度事件
+    async def event_generator():
+        r = redis.from_url(settings.redis_url, decode_responses=True)
+        channel = f"generation:{skill_id}:events"
+        pubsub = r.pubsub()
+        await pubsub.subscribe(channel)
+        last_heartbeat = time.monotonic()
+        try:
+            yield "event: heartbeat\ndata: {}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                msg = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=1.0
+                )
+                if msg and msg.get("type") == "message":
+                    payload = json.loads(msg["data"])
+                    event_type = payload.get("event", "generation_progress")
+                    data = json.dumps(payload.get("data", {}), ensure_ascii=False)
+                    yield f"event: {event_type}\ndata: {data}\n\n"
+                elif time.monotonic() - last_heartbeat >= 15:
+                    yield "event: heartbeat\ndata: {}\n\n"
+                    last_heartbeat = time.monotonic()
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+            await r.aclose()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.put("/{skill_id}")
