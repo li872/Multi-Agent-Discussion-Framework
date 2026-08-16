@@ -1,0 +1,188 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "ruff>=0.11.0"
+      - run: ruff check backend/ agent_engine/ audit_backend/
+
+  python-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest tests/ -m "not integration and not e2e" -q
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+  python-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: madf
+          POSTGRES_PASSWORD: madf
+          POSTGRES_DB: madf
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U madf"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Alembic upgrade
+        run: alembic upgrade head
+        env:
+          DB_HOST: localhost
+          DB_PORT: "5432"
+          DB_USER: madf
+          DB_PASSWORD: madf
+          DB_NAME: madf
+      - run: python -m pytest tests/ -m integration -q
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DB_HOST: localhost
+          REDIS_HOST: localhost
+          JWT_SECRET: ci-jwt-secret
+          ADMIN_JWT_SECRET: ci-admin-jwt-secret
+
+  frontend-main:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+
+  frontend-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: audit-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: audit-frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+
+  e2e-playwright:
+    runs-on: ubuntu-latest
+    needs: [frontend-main]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - name: Install root + frontend
+        run: |
+          npm install
+          cd frontend && npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build and preview frontend
+        working-directory: frontend
+        run: |
+          npm run build
+          npx vite preview --host 127.0.0.1 --port 4173 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:4173/ >/dev/null && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Run Playwright
+        run: npx playwright test
+        env:
+          E2E_BASE_URL: http://127.0.0.1:4173
+          CI: true
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    needs: [python-unit, frontend-main, frontend-audit]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build service images
+        run: |
+          docker build -t madf-backend -f Dockerfile .
+          docker build -t madf-audit-backend -f Dockerfile.audit .
+          docker build -t madf-frontend ./frontend
+          docker build -t madf-audit-frontend ./audit-frontend
+      - name: Compose up infra + APIs
+        run: |
+          docker network create madf-ci || true
+          docker run -d --name madf-pg --network madf-ci --network-alias postgres \
+            -e POSTGRES_USER=madf -e POSTGRES_PASSWORD=madf -e POSTGRES_DB=madf postgres:16
+          docker run -d --name madf-redis --network madf-ci --network-alias redis redis:7-alpine
+          for i in $(seq 1 30); do
+            docker exec madf-pg pg_isready -U madf && break
+            sleep 1
+          done
+          docker run -d --name madf-api --network madf-ci -p 8000:8000 \
+            -e DB_HOST=postgres -e REDIS_HOST=redis \
+            -e JWT_SECRET=ci-jwt -e ADMIN_JWT_SECRET=ci-admin \
+            madf-backend
+          docker run -d --name madf-audit-api --network madf-ci -p 8001:8001 \
+            -e MAIN_API_BASE=http://madf-api:8000 \
+            -e AUDIT_JWT_SECRET=ci-audit \
+            madf-audit-backend
+          sleep 8
+          curl -sf http://127.0.0.1:8000/api/v1/health | grep -qi madf
+          curl -sf http://127.0.0.1:8001/api/v1/audit/health >/dev/null
+          docker run -d --name madf-web --network madf-ci -p 8080:80 madf-frontend
+          docker run -d --name madf-audit-web --network madf-ci -p 8081:80 madf-audit-frontend
+          sleep 3
+          curl -sf http://127.0.0.1:8080/ | grep -qi html
+          curl -sf http://127.0.0.1:8081/ | grep -qi html
+        continue-on-error: false
