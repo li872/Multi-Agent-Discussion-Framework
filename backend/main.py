@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from backend.config import settings
 from backend.core.exception_handlers import register_exception_handlers
+from backend.core.health import probe_components
 from backend.core.responses import Result
 from backend.services.admin import router as admin_router
 from backend.services.character.router import router as character_router
@@ -21,3 +22,8 @@ app.include_router(admin_router)
 @app.get("/api/v1/health")
 async def health() -> Result[str]:
     return Result.ok(f"{settings.app_name} is running")
+
+
+@app.get("/api/v1/health/detailed")
+async def health_detailed() -> Result[dict]:
+    return Result.ok(await probe_components())
