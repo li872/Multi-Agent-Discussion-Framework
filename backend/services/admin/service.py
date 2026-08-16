@@ -223,6 +223,169 @@ class AdminService:
         await self.session.commit()
         return {"id": discussion_id, "ok": True}
 
+    def _event_dict(self, e) -> dict:
+        return {
+            "id": str(e.id),
+            "user_id": str(e.user_id) if e.user_id else None,
+            "discussion_id": str(e.discussion_id) if e.discussion_id else None,
+            "event_type": e.event_type,
+            "level": e.level,
+            "payload": e.payload,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+
+    async def create_user(self, username: str, password: str, phone: str | None) -> dict:
+        if await self.users.find_by_username(username):
+            raise HTTPException(status_code=409, detail="Username exists")
+        user = await self.users.create(username, self.pwd_context.hash(password), phone)
+        await self.audit.record(
+            event_type="user.created_by_admin",
+            level="P0",
+            user_id=user.id,
+            payload={"username": username},
+        )
+        await self.session.commit()
+        return await self.get_user(str(user.id))
+
+    async def set_username(self, user_id: str, username: str) -> dict:
+        user = await self.users.find_by_id_any(uuid.UUID(user_id))
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        taken = await self.users.find_by_username(username)
+        if taken and taken.id != user.id:
+            raise HTTPException(status_code=409, detail="Username exists")
+        user.username = username
+        await self.users.update(user)
+        await self.audit.record(
+            event_type="user.username_changed",
+            level="P0",
+            user_id=user.id,
+            payload={"username": username},
+        )
+        await self.session.commit()
+        return await self.get_user(user_id)
+
+    async def set_phone(self, user_id: str, phone: str | None) -> dict:
+        user = await self.users.find_by_id_any(uuid.UUID(user_id))
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        if phone:
+            taken = await self.users.find_by_phone(phone)
+            if taken and taken.id != user.id:
+                raise HTTPException(status_code=409, detail="Phone exists")
+        user.phone = phone
+        await self.users.update(user)
+        await self.audit.record(
+            event_type="user.phone_changed",
+            level="P0",
+            user_id=user.id,
+            payload={"phone": phone},
+        )
+        await self.session.commit()
+        return await self.get_user(user_id)
+
+    async def delete_user(self, user_id: str) -> dict:
+        return await self.set_user_status(user_id, False)
+
+    async def get_character(self, skill_id: str) -> dict:
+        skill = await self.characters.find_by_id(uuid.UUID(skill_id))
+        if not skill:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+        return {
+            "id": str(skill.id),
+            "owner_id": str(skill.owner_id),
+            "name": skill.name,
+            "status": skill.status,
+            "is_public": skill.is_public,
+            "file_path": skill.file_path,
+            "created_at": skill.created_at.isoformat() if skill.created_at else None,
+        }
+
+    async def list_gallery(self, page: int, page_size: int, search: str | None) -> dict:
+        rows, total = await self.characters.list_public(page, page_size, search)
+        items = [
+            {
+                "id": str(s.id),
+                "owner_id": str(s.owner_id),
+                "name": s.name,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in rows
+        ]
+        return self._page(items, total, page, page_size)
+
+    async def unlist_gallery(self, skill_id: str) -> dict:
+        result = await self.set_character_visibility(skill_id, False)
+        await self.audit.record(
+            event_type="gallery.unlisted",
+            level="P1",
+            payload={"skill_id": skill_id},
+        )
+        await self.session.commit()
+        return result
+
+    async def get_audit_event(self, event_id: str) -> dict:
+        e = await self.audit.get_by_id(event_id)
+        if not e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        return self._event_dict(e)
+
+    async def list_operations(self, page: int, page_size: int) -> dict:
+        items, total = await self.list_audit_events(
+            limit=page_size, offset=(page - 1) * page_size
+        )
+        return self._page([self._event_dict(e) for e in items], total, page, page_size)
+
+    async def list_health_errors(self, limit: int = 50) -> dict:
+        items, total = await self.list_audit_events(level="P0", limit=limit, offset=0)
+        return {"items": [self._event_dict(e) for e in items], "total": total}
+
+    async def list_orphans(self) -> dict:
+        rows = await self.discussions.list_orphans()
+        return {
+            "items": [
+                {
+                    "id": str(d.id),
+                    "topic": d.topic,
+                    "status": d.status,
+                    "started_at": d.started_at.isoformat() if d.started_at else None,
+                    "duration": d.duration,
+                }
+                for d in rows
+            ]
+        }
+
+    async def system_load(self) -> dict:
+        import os
+
+        return {"pid": os.getpid(), "cpu_count": os.cpu_count() or 1}
+
+    async def user_tokens(self, user_id: str) -> dict:
+        from backend.services.admin.token_repository import TokenUsageRepository
+
+        tokens = await TokenUsageRepository(self.session).sum_tokens(
+            user_id=uuid.UUID(user_id)
+        )
+        return {"user_id": user_id, "tokens": tokens}
+
+    async def discussion_tokens(self, discussion_id: str) -> dict:
+        from backend.services.admin.token_repository import TokenUsageRepository
+
+        tokens = await TokenUsageRepository(self.session).sum_tokens(
+            discussion_id=uuid.UUID(discussion_id)
+        )
+        return {"discussion_id": discussion_id, "tokens": tokens}
+
+    async def token_stats(self) -> dict:
+        from backend.services.admin.token_repository import TokenUsageRepository
+
+        return {"tokens": await TokenUsageRepository(self.session).sum_tokens()}
+
+    async def token_trend(self) -> dict:
+        from backend.services.admin.token_repository import TokenUsageRepository
+
+        return {"items": await TokenUsageRepository(self.session).trend_days(7)}
+
 
 async def get_admin_service(
     db: AsyncSession = Depends(get_db),

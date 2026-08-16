@@ -96,6 +96,23 @@ class DiscussionRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all()), total
 
+    async def list_orphans(self) -> list[Discussion]:
+        from backend.models.base import utcnow
+
+        now = utcnow()
+        stmt = select(Discussion).where(
+            Discussion.deleted_at.is_(None),
+            Discussion.status.in_(("starting", "running")),
+            Discussion.started_at.is_not(None),
+        )
+        rows = list((await self.session.execute(stmt)).scalars().all())
+        out: list[Discussion] = []
+        for d in rows:
+            deadline = d.started_at.timestamp() + int(d.duration) + 120
+            if deadline < now.timestamp():
+                out.append(d)
+        return out
+
     async def count_active(self) -> int:
         stmt = select(func.count()).select_from(Discussion).where(
             Discussion.deleted_at.is_(None)

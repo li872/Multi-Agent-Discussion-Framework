@@ -1,16 +1,21 @@
 from uuid import uuid4
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import HTTPException
 import pytest
+from jose import jwt
 
 from audit_backend.deps import create_audit_token
 from audit_backend.config import settings as audit_settings
 from backend.config import settings
-from backend.services.admin.router import _require_admin_token
+from backend.middleware.admin_auth import (
+    consume_jti_memory,
+    issue_admin_jwt,
+    require_admin_jwt,
+)
+from backend.middleware import admin_auth
 from backend.services.admin.service import AdminService
 from backend.services.audit.repository import AuditRepository
-from jose import jwt
-from unittest.mock import AsyncMock, MagicMock
 
 
 def test_should_convert_uuid_strings_in_audit_repo():
@@ -19,25 +24,6 @@ def test_should_convert_uuid_strings_in_audit_repo():
     assert repo._to_uuid(None) is None
     assert repo._to_uuid(uid) == uid
     assert repo._to_uuid(str(uid)) == uid
-
-
-def test_should_reject_admin_request_without_token(monkeypatch):
-    monkeypatch.setattr(settings, "admin_token", "ops-secret")
-    with pytest.raises(HTTPException) as exc:
-        _require_admin_token(None)
-    assert exc.value.status_code == 403
-
-
-def test_should_accept_matching_admin_token(monkeypatch):
-    monkeypatch.setattr(settings, "admin_token", "ops-secret")
-    assert _require_admin_token("ops-secret") is None
-
-
-def test_should_reject_empty_admin_token_config(monkeypatch):
-    monkeypatch.setattr(settings, "admin_token", "")
-    with pytest.raises(HTTPException) as exc:
-        _require_admin_token("anything")
-    assert exc.value.status_code == 403
 
 
 def test_should_encode_audit_audience_in_jwt():
@@ -50,6 +36,42 @@ def test_should_encode_audit_audience_in_jwt():
     )
     assert payload["sub"] == "admin"
     assert payload["aud"] == "audit"
+
+
+def test_should_issue_admin_jwt_with_jti(monkeypatch):
+    monkeypatch.setattr(settings, "admin_jwt_secret", "test-admin-secret")
+    token = issue_admin_jwt()
+    payload = jwt.decode(
+        token,
+        "test-admin-secret",
+        algorithms=["HS256"],
+        audience="admin",
+    )
+    assert payload["jti"]
+    assert payload["sub"] == "audit-gateway"
+
+
+@pytest.mark.asyncio
+async def test_should_reject_missing_admin_jwt():
+    with pytest.raises(HTTPException) as exc:
+        await require_admin_jwt(None)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_should_reject_replayed_admin_jwt(monkeypatch):
+    monkeypatch.setattr(settings, "admin_jwt_secret", "test-admin-secret")
+    admin_auth._memory_jti.clear()
+
+    async def mem(jti: str) -> bool:
+        return consume_jti_memory(jti)
+
+    monkeypatch.setattr(admin_auth, "consume_jti", mem)
+    token = issue_admin_jwt()
+    assert await require_admin_jwt(f"Bearer {token}") == "audit-gateway"
+    with pytest.raises(HTTPException) as exc:
+        await require_admin_jwt(f"Bearer {token}")
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -72,6 +94,27 @@ async def test_should_write_p0_audit_when_admin_disables_user():
     assert kwargs["level"] == "P0"
     assert kwargs["payload"]["status"] == "disabled"
     session.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_should_write_p0_audit_when_admin_renames_user():
+    session = AsyncMock()
+    svc = AdminService(session)
+    svc.users = AsyncMock()
+    svc.audit = AsyncMock()
+    user = MagicMock()
+    user.id = uuid4()
+    user.username = "old"
+    user.phone = None
+    user.deleted_at = None
+    user.created_at = MagicMock()
+    user.created_at.isoformat.return_value = "2026-08-16T00:00:00+00:00"
+    svc.users.find_by_id_any.return_value = user
+    svc.users.find_by_username.return_value = None
+    await svc.set_username(str(user.id), "newname")
+    kwargs = svc.audit.record.await_args.kwargs
+    assert kwargs["event_type"] == "user.username_changed"
+    assert kwargs["level"] == "P0"
 
 
 @pytest.mark.asyncio
