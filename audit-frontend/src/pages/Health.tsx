@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { auditApi } from '../api/client'
 import type { ApiResult } from '../api/client'
 
@@ -15,17 +15,9 @@ type Health = {
 }
 
 export default function Health() {
-  const [data, setData] = useState<Health | null>(null)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const [orphans, setOrphans] = useState<{ id: string; topic: string; status: string }[]>([])
-  const [loadInfo, setLoadInfo] = useState<{ pid?: number; cpu_count?: number } | null>(null)
-
-  async function load() {
-    setLoading(true)
-    setError('')
-    try {
+  const health = useQuery({
+    queryKey: ['admin', 'health-page'],
+    queryFn: async () => {
       const [h, o, l] = await Promise.all([
         auditApi.get<ApiResult<Health>>('/admin/health'),
         auditApi.get<ApiResult<{ items: { id: string; topic: string; status: string }[] }>>(
@@ -33,30 +25,28 @@ export default function Health() {
         ),
         auditApi.get<ApiResult<{ pid: number; cpu_count: number }>>('/admin/health/load'),
       ])
-      setData(h.data.data)
-      setOrphans(o.data.data?.items || [])
-      setLoadInfo(l.data.data)
-    } catch {
-      setError('健康检查失败')
-    } finally {
-      setLoading(false)
-    }
-  }
+      return {
+        data: h.data.data,
+        orphans: o.data.data?.items || [],
+        loadInfo: l.data.data,
+      }
+    },
+  })
 
-  useEffect(() => {
-    load()
-  }, [])
+  const data = health.data?.data
+  const orphans = health.data?.orphans || []
+  const loadInfo = health.data?.loadInfo
 
   return (
     <div className="page wide">
       <div className="row">
         <h1>系统健康</h1>
-        <button type="button" disabled={loading} onClick={load}>
-          {loading ? '检查中…' : '刷新'}
+        <button type="button" disabled={health.isFetching} onClick={() => health.refetch()}>
+          {health.isFetching ? '检查中…' : '刷新'}
         </button>
       </div>
       {data?.app && <p className="muted">{data.app}</p>}
-      {error && <p className="error">{error}</p>}
+      {health.isError && <p className="error">健康检查失败</p>}
       <ul className="checklist">
         {data &&
           Object.entries(data.components || {}).map(([name, c]) => (

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
 
@@ -11,41 +12,40 @@ type User = {
 }
 
 export default function Profile() {
-  const [user, setUser] = useState<User | null>(null)
   const [username, setUsername] = useState('')
   const [phone, setPhone] = useState('')
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  async function loadUser() {
-    const { data } = await api.get<ApiResult<User>>('/auth/me')
-    if (data.code !== 200) {
-      setError(data.message || '加载失败')
-      return
-    }
-    setUser(data.data)
-    setUsername(data.data.username)
-    setPhone(data.data.phone || '')
-  }
+  const me = useQuery({
+    queryKey: ['auth', 'me'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResult<User>>('/auth/me')
+      if (data.code !== 200) throw new Error(data.message || '加载失败')
+      return data.data
+    },
+  })
 
   useEffect(() => {
-    loadUser().catch(() => setError('加载用户信息失败'))
-  }, [])
+    if (!me.data) return
+    setUsername(me.data.username)
+    setPhone(me.data.phone || '')
+  }, [me.data])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
     setSuccess('')
-    setLoading(true)
+    setSaving(true)
 
     const payload: Record<string, string> = {}
-    if (username.trim() && username !== user?.username) {
+    if (username.trim() && username !== me.data?.username) {
       payload.username = username.trim()
     }
-    if (phone.trim() !== (user?.phone || '')) {
+    if (phone.trim() !== (me.data?.phone || '')) {
       payload.phone = phone.trim()
     }
     if (newPassword) {
@@ -55,7 +55,7 @@ export default function Profile() {
 
     if (Object.keys(payload).length === 0) {
       setSuccess('没有修改')
-      setLoading(false)
+      setSaving(false)
       return
     }
 
@@ -65,21 +65,21 @@ export default function Profile() {
         setError(data.message || '更新失败')
         return
       }
-      setUser(data.data)
       setOldPassword('')
       setNewPassword('')
       setSuccess('保存成功')
+      me.refetch()
     } catch {
       setError('更新失败，请检查旧密码或后端是否启动')
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
   return (
     <div className="page">
       <h1>个人中心</h1>
-      {error && <p className="error">{error}</p>}
+      {(error || me.isError) && <p className="error">{error || '加载用户信息失败'}</p>}
       {success && <p className="success">{success}</p>}
       <form onSubmit={onSubmit} className="card">
         <label>
@@ -109,8 +109,8 @@ export default function Profile() {
             placeholder="不修改密码可留空"
           />
         </label>
-        <button type="submit" disabled={loading}>
-          {loading ? '保存中…' : '保存'}
+        <button type="submit" disabled={saving}>
+          {saving ? '保存中…' : '保存'}
         </button>
       </form>
     </div>

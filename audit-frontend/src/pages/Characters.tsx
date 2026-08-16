@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { auditApi, formatTs } from '../api/client'
 import type { ApiResult, PageData } from '../api/client'
 
@@ -12,31 +13,32 @@ type CharRow = {
 }
 
 export default function Characters() {
-  const [items, setItems] = useState<CharRow[]>([])
-  const [total, setTotal] = useState(0)
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
+  const [applied, setApplied] = useState('')
   const [galleryOnly, setGalleryOnly] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
 
-  async function load(q = search) {
-    const res = await auditApi.get<ApiResult<PageData<CharRow>>>('/admin/characters', {
-      params: { page: 1, page_size: 50, search: q || undefined },
-    })
-    const rows = res.data.data?.items || []
-    setItems(galleryOnly ? rows.filter((c) => c.is_public) : rows)
-    setTotal(res.data.data?.total || 0)
-  }
+  const list = useQuery({
+    queryKey: ['admin', 'characters', applied],
+    queryFn: async () => {
+      const res = await auditApi.get<ApiResult<PageData<CharRow>>>('/admin/characters', {
+        params: { page: 1, page_size: 50, search: applied || undefined },
+      })
+      return res.data.data
+    },
+  })
 
-  useEffect(() => {
-    load('').catch(() => setError('加载角色失败'))
-  }, [galleryOnly])
+  const raw = list.data?.items || []
+  const items = galleryOnly ? raw.filter((c) => c.is_public) : raw
+  const total = list.data?.total || 0
 
   async function setPublic(id: string, is_public: boolean) {
     setBusy(id)
     try {
       await auditApi.put(`/admin/characters/${id}/visibility`, { is_public })
-      await load()
+      qc.invalidateQueries({ queryKey: ['admin', 'characters'] })
     } catch {
       setError('更新可见性失败')
     } finally {
@@ -49,7 +51,7 @@ export default function Characters() {
     setBusy(id)
     try {
       await auditApi.delete(`/admin/characters/${id}`)
-      await load()
+      qc.invalidateQueries({ queryKey: ['admin', 'characters'] })
     } catch {
       setError('删除失败')
     } finally {
@@ -66,7 +68,7 @@ export default function Characters() {
           placeholder="搜索角色名"
           onChange={(e) => setSearch(e.target.value)}
         />
-        <button type="button" onClick={() => load().catch(() => setError('加载角色失败'))}>
+        <button type="button" onClick={() => setApplied(search)}>
           搜索
         </button>
       </div>
@@ -79,7 +81,7 @@ export default function Characters() {
         只看画廊公开
       </label>
       <p className="muted">共 {total} 个</p>
-      {error && <p className="error">{error}</p>}
+      {(error || list.isError) && <p className="error">{error || '加载角色失败'}</p>}
       <ul className="checklist">
         {items.map((c) => (
           <li key={c.id}>
@@ -106,7 +108,7 @@ export default function Characters() {
           </li>
         ))}
       </ul>
-      {items.length === 0 && !error && <p>暂无角色</p>}
+      {items.length === 0 && !error && !list.isError && <p>暂无角色</p>}
     </div>
   )
 }

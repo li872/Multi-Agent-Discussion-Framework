@@ -1,5 +1,7 @@
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Suspense } from 'react'
 import { auditLoginPath } from '../api/base'
+import PageFallback from './PageFallback'
 
 function logout() {
   localStorage.removeItem('audit_token')
@@ -50,7 +52,9 @@ export default function Layout() {
         </button>
       </nav>
       <div className="app-main">
-        <Outlet />
+        <Suspense fallback={<PageFallback />}>
+          <Outlet />
+        </Suspense>
       </div>
     </div>
   )

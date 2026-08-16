@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { auditApi } from '../api/client'
 import type { ApiResult } from '../api/client'
 import { auditApiBase } from '../api/base'
@@ -6,26 +7,25 @@ import { auditApiBase } from '../api/base'
 type AdminRow = { id: string; username: string; created_at: string }
 
 export default function Admins() {
-  const [items, setItems] = useState<AdminRow[]>([])
+  const qc = useQueryClient()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  async function load() {
-    const res = await auditApi.get<ApiResult<{ items: AdminRow[] }>>('/audit/admins')
-    setItems(res.data.data?.items || [])
-  }
-
-  useEffect(() => {
-    load().catch(() => setError('加载管理员失败'))
-  }, [])
+  const list = useQuery({
+    queryKey: ['audit', 'admins'],
+    queryFn: async () => {
+      const res = await auditApi.get<ApiResult<{ items: AdminRow[] }>>('/audit/admins')
+      return res.data.data?.items || []
+    },
+  })
 
   async function onCreate() {
     try {
       await auditApi.post('/audit/admins', { username, password })
       setUsername('')
       setPassword('')
-      await load()
+      qc.invalidateQueries({ queryKey: ['audit', 'admins'] })
     } catch {
       setError('创建失败（用户名可能已存在）')
     }
@@ -35,16 +35,18 @@ export default function Admins() {
     if (!window.confirm('删除该管理员？')) return
     try {
       await auditApi.delete(`/audit/admins/${id}`)
-      await load()
+      qc.invalidateQueries({ queryKey: ['audit', 'admins'] })
     } catch {
       setError('不能删除最后一名管理员')
     }
   }
 
+  const items = list.data || []
+
   return (
     <div className="page wide">
       <h1>管理员</h1>
-      {error && <p className="error">{error}</p>}
+      {(error || list.isError) && <p className="error">{error || '加载管理员失败'}</p>}
       <p className="muted">API {auditApiBase()}</p>
       <div className="card">
         <label>

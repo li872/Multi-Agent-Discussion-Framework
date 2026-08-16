@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
 
@@ -11,37 +12,37 @@ type Discussion = {
 }
 
 export default function Discussions() {
-  const [items, setItems] = useState<Discussion[]>([])
-  const [error, setError] = useState('')
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
+  const [debounced, setDebounced] = useState('')
+  const [error, setError] = useState('')
 
-  async function refresh(q = '') {
-    const params = q ? `?search=${encodeURIComponent(q)}` : ''
-    const res = await api.get<ApiResult<{ items: Discussion[] }>>(
-      `/discussions${params}`,
-    )
-    setItems(res.data.data.items || [])
-  }
-
-  // 搜索防抖：300ms 防抖后请求 GET /discussions?search=xxx
   useEffect(() => {
-    const timer = setTimeout(() => {
-      refresh(search).catch(() => setError('加载讨论失败'))
-    }, 300)
-    return () => clearTimeout(timer)
+    const t = setTimeout(() => setDebounced(search), 300)
+    return () => clearTimeout(t)
   }, [search])
+
+  const list = useQuery({
+    queryKey: ['discussions', debounced],
+    queryFn: async () => {
+      const params = debounced ? `?search=${encodeURIComponent(debounced)}` : ''
+      const res = await api.get<ApiResult<{ items: Discussion[] }>>(`/discussions${params}`)
+      return res.data.data.items || []
+    },
+  })
 
   async function onDelete(id: string, topic: string) {
     if (!window.confirm(`确定删除讨论「${topic}」？`)) return
     setError('')
     try {
-      // 软删除：后端写 deleted_at，列表不再返回
       await api.delete(`/discussions/${id}`)
-      setItems((prev) => prev.filter((d) => d.id !== id))
+      qc.invalidateQueries({ queryKey: ['discussions'] })
     } catch {
       setError('删除失败')
     }
   }
+
+  const items = list.data || []
 
   return (
     <div className="page">
@@ -55,8 +56,8 @@ export default function Discussions() {
         />
         <Link to="/discussions/new">新建讨论</Link>
       </div>
-      {error && <p className="error">{error}</p>}
-      {items.length === 0 && !error && <p>暂无讨论</p>}
+      {(error || list.isError) && <p className="error">{error || '加载讨论失败'}</p>}
+      {items.length === 0 && !error && !list.isError && <p>暂无讨论</p>}
       <ul className="checklist">
         {items.map((d) => (
           <li key={d.id}>

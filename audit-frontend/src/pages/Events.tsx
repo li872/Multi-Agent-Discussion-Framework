@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { auditApi, formatTs } from '../api/client'
 import type { ApiResult } from '../api/client'
 
@@ -18,22 +19,19 @@ type EventList = {
 }
 
 export default function Events() {
-  const [items, setItems] = useState<AuditEvent[]>([])
-  const [total, setTotal] = useState(0)
-  const [error, setError] = useState('')
   const [level, setLevel] = useState('')
+  const list = useQuery({
+    queryKey: ['audit', 'events', level],
+    queryFn: async () => {
+      const params = new URLSearchParams({ limit: '50', offset: '0' })
+      if (level) params.set('level', level)
+      const res = await auditApi.get<ApiResult<EventList>>(`/audit/events?${params}`)
+      return res.data.data
+    },
+  })
 
-  async function load() {
-    const params = new URLSearchParams({ limit: '50', offset: '0' })
-    if (level) params.set('level', level)
-    const res = await auditApi.get<ApiResult<EventList>>(`/audit/events?${params}`)
-    setItems(res.data.data?.items || [])
-    setTotal(res.data.data?.total || 0)
-  }
-
-  useEffect(() => {
-    load().catch(() => setError('加载审计事件失败（检查 ADMIN_TOKEN 与主后端）'))
-  }, [level])
+  const items = list.data?.items || []
+  const total = list.data?.total || 0
 
   return (
     <div className="page wide">
@@ -47,7 +45,7 @@ export default function Events() {
         </select>
         <span className="muted">共 {total} 条</span>
       </div>
-      {error && <p className="error">{error}</p>}
+      {list.isError && <p className="error">加载审计事件失败（检查 ADMIN_JWT 与主后端）</p>}
       <ul className="checklist">
         {items.map((e) => (
           <li key={e.id}>
@@ -60,7 +58,7 @@ export default function Events() {
           </li>
         ))}
       </ul>
-      {items.length === 0 && !error && <p>暂无事件</p>}
+      {items.length === 0 && !list.isError && <p>暂无事件</p>}
     </div>
   )
 }

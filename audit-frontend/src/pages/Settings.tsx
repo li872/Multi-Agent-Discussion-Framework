@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { auditApi } from '../api/client'
 import type { ApiResult } from '../api/client'
 
@@ -7,12 +8,17 @@ export default function Settings() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
+  const settings = useQuery({
+    queryKey: ['audit', 'settings'],
+    queryFn: async () => {
+      const res = await auditApi.get<ApiResult<{ retention_days: number }>>('/audit/settings')
+      return res.data.data?.retention_days || 90
+    },
+  })
+
   useEffect(() => {
-    auditApi
-      .get<ApiResult<{ retention_days: number }>>('/audit/settings')
-      .then((res) => setDays(res.data.data?.retention_days || 90))
-      .catch(() => setError('加载设置失败'))
-  }, [])
+    if (settings.data != null) setDays(settings.data)
+  }, [settings.data])
 
   async function save() {
     try {
@@ -39,7 +45,7 @@ export default function Settings() {
   return (
     <div className="page wide">
       <h1>设置</h1>
-      {error && <p className="error">{error}</p>}
+      {(error || settings.isError) && <p className="error">{error || '加载设置失败'}</p>}
       {message && <p className="muted">{message}</p>}
       <div className="card">
         <label>

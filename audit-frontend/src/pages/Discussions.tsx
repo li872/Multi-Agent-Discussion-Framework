@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { auditApi, formatTs } from '../api/client'
 import type { ApiResult, PageData } from '../api/client'
 import { auditApiBase } from '../api/base'
@@ -24,26 +25,25 @@ type DiscDetail = DiscRow & {
 }
 
 export default function Discussions() {
-  const [items, setItems] = useState<DiscRow[]>([])
-  const [total, setTotal] = useState(0)
+  const qc = useQueryClient()
   const [detail, setDetail] = useState<DiscDetail | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
-
   const [live, setLive] = useState(false)
   const esRef = useRef<EventSource | null>(null)
 
-  async function load() {
-    const res = await auditApi.get<ApiResult<PageData<DiscRow>>>('/admin/discussions', {
-      params: { page: 1, page_size: 50 },
-    })
-    setItems(res.data.data?.items || [])
-    setTotal(res.data.data?.total || 0)
-  }
+  const list = useQuery({
+    queryKey: ['admin', 'discussions'],
+    queryFn: async () => {
+      const res = await auditApi.get<ApiResult<PageData<DiscRow>>>('/admin/discussions', {
+        params: { page: 1, page_size: 50 },
+      })
+      return res.data.data
+    },
+  })
 
-  useEffect(() => {
-    load().catch(() => setError('加载讨论失败'))
-  }, [])
+  const items = list.data?.items || []
+  const total = list.data?.total || 0
 
   async function openDetail(id: string) {
     try {
@@ -60,7 +60,7 @@ export default function Discussions() {
     try {
       await auditApi.delete(`/admin/discussions/${id}`)
       if (detail?.id === id) setDetail(null)
-      await load()
+      qc.invalidateQueries({ queryKey: ['admin', 'discussions'] })
     } catch {
       setError('删除失败')
     } finally {
@@ -91,7 +91,7 @@ export default function Discussions() {
       <p className="muted">
         共 {total} 场{live ? ' · 正在旁听' : ''}
       </p>
-      {error && <p className="error">{error}</p>}
+      {(error || list.isError) && <p className="error">{error || '加载讨论失败'}</p>}
       <ul className="checklist">
         {items.map((d) => (
           <li key={d.id}>
@@ -112,7 +112,7 @@ export default function Discussions() {
           </li>
         ))}
       </ul>
-      {items.length === 0 && !error && <p>暂无讨论</p>}
+      {items.length === 0 && !error && !list.isError && <p>暂无讨论</p>}
       {detail && (
         <div className="card">
           <h2>{detail.topic}</h2>

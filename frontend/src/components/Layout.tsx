@@ -1,5 +1,7 @@
+import { Suspense } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
 import LogoutButton from './LogoutButton'
+import PageFallback from './PageFallback'
 
 const NAV = [
   { to: '/', label: '首页', end: true },
@@ -56,7 +58,9 @@ export default function Layout() {
         <LogoutButton />
       </header>
       <main className="app-main">
-        <Outlet />
+        <Suspense fallback={<PageFallback />}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   )
