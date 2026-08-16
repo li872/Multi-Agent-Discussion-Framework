@@ -7,6 +7,7 @@ import Discussions from './pages/Discussions'
 import Register from './pages/Register'
 import CharacterSkill from './pages/CharacterSkill'
 import Gallery from './pages/Gallery'
+import GenerateSkill from './pages/GenerateSkill'
 import Profile from './pages/Profile'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -66,6 +67,14 @@ export default function App() {
           element={
             <RequireAuth>
               <Gallery />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/generate"
+          element={
+            <RequireAuth>
+              <GenerateSkill />
             </RequireAuth>
           }
         />

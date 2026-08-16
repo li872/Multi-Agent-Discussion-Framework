@@ -44,3 +44,8 @@ class CharacterListResponse(BaseModel):
     page: int
     page_size: int
     has_more: bool
+
+
+class RecommendationsResponse(BaseModel):
+    items: list[str]
+    source: str

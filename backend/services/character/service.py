@@ -9,13 +9,58 @@ import uuid
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent_engine.llm import get_chat_llm
 from agent_engine.skill_gen.generation_service import run_full_skill_generation
 from agent_engine.skill_gen.mini_generate import run_mini_skill_generation
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
 from backend.services.character.file_manager import SkillFileManager
 from backend.services.character.repository import CharacterRepository
-from backend.services.character.schemas import CharacterListResponse, CharacterResponse
+from backend.services.character.schemas import (
+    CharacterListResponse,
+    CharacterResponse,
+    RecommendationsResponse,
+)
+
+# 人物推荐兜底池：覆盖科技、商业、哲学、科学等领域
+DEFAULT_RECOMMENDATIONS = [
+    "Steve Jobs",
+    "Elon Musk",
+    "Warren Buffett",
+    "Charlie Munger",
+    "Naval Ravikant",
+    "Paul Graham",
+    "Richard Feynman",
+    "Nassim Taleb",
+    "Yuval Noah Harari",
+    "Daniel Kahneman",
+    "Jeff Bezos",
+    "Bill Gates",
+    "Albert Einstein",
+    "Marie Curie",
+    "Leonardo da Vinci",
+    "Confucius",
+    "Laozi",
+    "Sun Tzu",
+    "Socrates",
+    "Plato",
+    "Aristotle",
+    "Marcus Aurelius",
+    "Seneca",
+    "Montaigne",
+    "Shakespeare",
+    "Goethe",
+    "Tolstoy",
+    "Kafka",
+    "Mark Twain",
+    "Benjamin Franklin",
+    "Nikola Tesla",
+    "Alan Turing",
+    "Ada Lovelace",
+    "Linus Torvalds",
+    "Andrej Karpathy",
+    "Ilya Sutskever",
+]
 
 
 class CharacterService:
@@ -119,6 +164,43 @@ class CharacterService:
             )
         )
         return self._to_response(skill)
+
+    async def get_recommendations(self, owner_id: str) -> RecommendationsResponse:
+        """人物推荐：优先用 LLM 生成 6 个人名，失败或不足时用兜底池补齐。"""
+        uid = uuid.UUID(owner_id)
+        skills, _ = await self.repo.list_by_owner(uid, page=1, page_size=1000)
+        existing = {
+            s.name.replace("-perspective", "").lower()
+            for s in skills
+            if s.name
+        }
+
+        llm_names: list[str] = []
+        try:
+            llm = get_chat_llm(temperature=0.9, timeout=8)
+            prompt = (
+                "请推荐 6 位适合作为 AI 圆桌讨论角色的历史/公众人物，"
+                "涵盖科技、商业、哲学、科学等领域。只返回 6 个人名，每行一个，不要解释。"
+            )
+            raw = (await llm.ainvoke(prompt)).content
+            if isinstance(raw, str):
+                for line in raw.splitlines():
+                    name = line.strip().strip("-*1234567890. ").strip()
+                    if name and len(name) <= 64 and name.lower() not in existing:
+                        llm_names.append(name)
+        except Exception:
+            # LLM 失败或 key 未配置：静默回退到兜底池
+            pass
+
+        candidates = list(llm_names)
+        for name in DEFAULT_RECOMMENDATIONS:
+            if name.lower() not in existing and name not in candidates:
+                candidates.append(name)
+            if len(candidates) >= 6:
+                break
+
+        source = "llm" if len(llm_names) >= 6 else "fallback"
+        return RecommendationsResponse(items=candidates[:6], source=source)
 
     async def list_my_characters(
         self, owner_id: str, page: int, page_size: int, search: str | None

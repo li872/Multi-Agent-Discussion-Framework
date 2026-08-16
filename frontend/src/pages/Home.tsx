@@ -54,6 +54,9 @@ export default function Home() {
         <Link to="/discussions/new">
           <button>新建讨论</button>
         </Link>
+        <Link to="/generate" style={{ marginLeft: 12 }}>
+          <button>AI 生成角色</button>
+        </Link>
         <Link to="/gallery" style={{ marginLeft: 12 }}>
           <button>公开画廊</button>
         </Link>
