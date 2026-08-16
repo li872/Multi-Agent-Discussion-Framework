@@ -77,12 +77,12 @@ export default function DiscussionRoom() {
         setMessages((prev) => {
           if (prev.some((m) => m.id === msg.id)) return prev
           // 流式结束后：用正式 message 替换 temp_id=stream-... 的临时气泡，避免两条发言
+          // 按 message_type + round_number 匹配，适用于 agent_speak 和 host_summary
           const idx = prev.findIndex(
             (m) =>
               m.id.startsWith('stream-') &&
-              m.message_type === 'agent_speak' &&
-              m.agent_name === msg.agent_name &&
-              msg.message_type === 'agent_speak',
+              m.message_type === msg.message_type &&
+              m.round_number === msg.round_number,
           )
           if (idx >= 0) {
             const next = [...prev]
@@ -130,6 +130,49 @@ export default function DiscussionRoom() {
           temp_id: string
           content: string
         }
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === data.temp_id
+              ? { ...m, content: m.content + data.content }
+              : m,
+          ),
+        )
+      } catch {
+        // ignore
+      }
+    })
+
+    // 主持人总结开始：先插一个空气泡（React 状态），后续 chunk 往里追加
+    es.addEventListener('host_summary_start', (ev) => {
+      try {
+        const data = JSON.parse(ev.data) as {
+          temp_id: string
+          agent_name: string
+          round: number
+        }
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === data.temp_id)) return prev
+          return [
+            ...prev,
+            {
+              id: data.temp_id,
+              round_number: data.round,
+              agent_name: data.agent_name,
+              message_type: 'host_summary',
+              content: '',
+              confidence: null,
+            },
+          ]
+        })
+      } catch {
+        // ignore
+      }
+    })
+
+    // 主持人总结增量：每个 chunk 拼到对应 temp_id 气泡（打字机效果）
+    es.addEventListener('host_summary_chunk', (ev) => {
+      try {
+        const data = JSON.parse(ev.data) as { temp_id: string; content: string }
         setMessages((prev) =>
           prev.map((m) =>
             m.id === data.temp_id
