@@ -159,8 +159,40 @@ async def run_multi_discussion(
                     f"你是圆桌讨论主持人。请用中文做简短开场（80-150字），"
                     f"主题是「{topic}」，邀请在场嘉宾发言。不要提AI。"
                 )
-                intro = (await host_llm.ainvoke(intro_prompt)).content
-                intro_text = (intro if isinstance(intro, str) else str(intro)).strip()
+
+                # --- 主持人开场真流式（与 agent_speak/host_summary 流式同技术）---
+                # 技术：LangChain ChatOpenAI.astream + Redis Pub/Sub + SSE
+                # 作用：开场白边生成边推 chunk，前端可打字机显示；结束后再整段写入 PostgreSQL
+                intro_temp_id = "stream-intro-0"
+                await publish_discussion_event(
+                    str(discussion_id),
+                    "host_intro_start",
+                    {
+                        "temp_id": intro_temp_id,
+                        "agent_name": "主持人",
+                        "round": 0,
+                    },
+                )
+
+                intro_parts: list[str] = []
+                # astream：异步迭代模型输出的增量文本（每包常是若干 token，代码里叫 chunk）
+                async for chunk in host_llm.astream(intro_prompt):
+                    piece = chunk.content
+                    text = piece if isinstance(piece, str) else str(piece or "")
+                    if not text:
+                        continue
+                    intro_parts.append(text)
+                    await publish_discussion_event(
+                        str(discussion_id),
+                        "host_intro_chunk",
+                        {
+                            "temp_id": intro_temp_id,
+                            "content": text,
+                        },
+                    )
+
+                intro_text = "".join(intro_parts).strip()
+                # 落库：PostgreSQL 仍存完整开场白（权威数据）；再推正式 message 事件
                 intro_msg = await repo.add_message(
                     discussion_id,
                     round_number=0,

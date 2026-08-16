@@ -163,6 +163,50 @@ export default function DiscussionRoom() {
         }
       })
 
+      // 主持人开场开始：先插一个空气泡（React 状态），后续 chunk 往里追加
+      es.addEventListener('host_intro_start', (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as {
+            temp_id: string
+            agent_name: string
+            round: number
+          }
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === data.temp_id)) return prev
+            return [
+              ...prev,
+              {
+                id: data.temp_id,
+                round_number: data.round,
+                agent_name: data.agent_name,
+                message_type: 'host_intro',
+                content: '',
+                confidence: null,
+                created_at: '',
+              },
+            ]
+          })
+        } catch {
+          // ignore
+        }
+      })
+
+      // 主持人开场增量：每个 chunk 拼到对应 temp_id 气泡（打字机效果）
+      es.addEventListener('host_intro_chunk', (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as { temp_id: string; content: string }
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === data.temp_id
+                ? { ...m, content: m.content + data.content }
+                : m,
+            ),
+          )
+        } catch {
+          // ignore
+        }
+      })
+
       // 主持人总结开始：先插一个空气泡（React 状态），后续 chunk 往里追加
       es.addEventListener('host_summary_start', (ev) => {
         try {
