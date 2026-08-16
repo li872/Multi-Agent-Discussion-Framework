@@ -16,6 +16,7 @@ from backend.services.character.schemas import (
     CharacterResponse,
     CharacterUpdateRequest,
     FileContentRequest,
+    RecommendationsResponse,
 )
 from backend.services.character.service import CharacterService, get_character_service
 
@@ -67,6 +68,16 @@ async def list_public_characters(
 ) -> Result:
     # 学习版画廊：无需登录即可浏览公开角色
     result = await svc.list_gallery(page, page_size, search)
+    return Result.ok(result)
+
+
+@router.get("/recommendations")
+async def get_recommendations(
+    user_id: str = Depends(require_user),
+    svc: CharacterService = Depends(get_character_service),
+) -> Result[RecommendationsResponse]:
+    # 人物推荐：LLM 生成 6 人，失败则兜底静态池；过滤已有人物
+    result = await svc.get_recommendations(user_id)
     return Result.ok(result)
 
 
