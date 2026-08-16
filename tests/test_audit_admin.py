@@ -89,3 +89,37 @@ async def test_should_write_p1_audit_when_admin_deletes_discussion():
     assert kwargs["event_type"] == "discussion.deleted_by_admin"
     assert kwargs["level"] == "P1"
     assert kwargs["discussion_id"] == disc.id
+
+
+@pytest.mark.asyncio
+async def test_should_write_p1_audit_when_admin_unlists_character():
+    session = AsyncMock()
+    svc = AdminService(session)
+    svc.characters = AsyncMock()
+    svc.audit = AsyncMock()
+    skill = MagicMock()
+    skill.id = uuid4()
+    skill.name = "jobs"
+    svc.characters.find_by_id.return_value = skill
+    await svc.set_character_visibility(str(skill.id), False)
+    kwargs = svc.audit.record.await_args.kwargs
+    assert kwargs["event_type"] == "skill.visibility_changed"
+    assert kwargs["level"] == "P1"
+    assert kwargs["payload"]["is_public"] is False
+
+
+@pytest.mark.asyncio
+async def test_should_write_p1_audit_when_admin_deletes_character():
+    session = AsyncMock()
+    svc = AdminService(session)
+    svc.characters = AsyncMock()
+    svc.audit = AsyncMock()
+    skill = MagicMock()
+    skill.id = uuid4()
+    skill.name = "jobs"
+    svc.characters.find_by_id.return_value = skill
+    await svc.delete_character(str(skill.id))
+    kwargs = svc.audit.record.await_args.kwargs
+    assert kwargs["event_type"] == "character.deleted_by_admin"
+    assert kwargs["level"] == "P1"
+    assert kwargs["payload"]["skill_name"] == "jobs"

@@ -4,6 +4,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { auditApi } from '../api/client'
 import type { ApiResult } from '../api/client'
 
+function safeRedirect(raw: string | null): string {
+  if (!raw) return '/'
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/'
+  if (raw.startsWith('/login')) return '/'
+  return raw
+}
+
 export default function Login() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -26,8 +33,7 @@ export default function Login() {
       }
       localStorage.setItem('audit_token', data.data.token)
       localStorage.setItem('audit_admin', JSON.stringify(data.data.admin))
-      const redirect = params.get('redirect') || '/'
-      navigate(redirect.startsWith('/') ? redirect : '/', { replace: true })
+      navigate(safeRedirect(params.get('redirect')), { replace: true })
     } catch {
       setError('登录失败，请检查审计后端是否启动')
     } finally {

@@ -26,6 +26,9 @@ export default function Layout() {
           <NavLink to="/users" className="app-nav-link">
             用户
           </NavLink>
+          <NavLink to="/characters" className="app-nav-link">
+            角色
+          </NavLink>
           <NavLink to="/discussions" className="app-nav-link">
             讨论
           </NavLink>
