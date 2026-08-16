@@ -60,6 +60,30 @@ services:
     depends_on:
       - backend
 
+  audit-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.audit
+    container_name: madf-audit-backend
+    env_file:
+      - .env
+    environment:
+      MAIN_API_BASE: http://backend:8000
+    ports:
+      - "8001:8001"
+    depends_on:
+      - backend
+
+  audit-frontend:
+    build:
+      context: ./audit-frontend
+      dockerfile: Dockerfile
+    container_name: madf-audit-frontend
+    ports:
+      - "81:80"
+    depends_on:
+      - audit-backend
+
 volumes:
   pg_data:
   skills:
