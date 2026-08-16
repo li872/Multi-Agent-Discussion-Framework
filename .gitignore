@@ -13,3 +13,7 @@ audit_data/
 .pytest_cache/
 .DS_Store
 *.log
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

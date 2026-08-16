@@ -1,0 +1,14 @@
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+  "agent_engine/skill_gen/nuwa-agent-skill",
+  "nuwa-source",
+]
+
+[lint]
+# 一期质量门禁：只拦确定的语法/未定义名问题，避免整库风格重排
+select = ["F"]
+ignore = ["F401", "F541"]
+
+[lint.per-file-ignores]
+"tests/*" = ["F401", "F811"]
