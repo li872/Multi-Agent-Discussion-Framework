@@ -1,7 +1,7 @@
 # 后端 FastAPI 容器
 # 技术：Python 3.12 + uvicorn + 项目 pyproject.toml 依赖
-# 使用阿里云镜像源，避免国内拉取 docker.io 官方镜像失败
-FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.12-slim
+# 基础镜像已预先从 DaoCloud 镜像源拉取到本地并 retag 为官方名称
+FROM python:3.12-slim
 
 WORKDIR /app
 
