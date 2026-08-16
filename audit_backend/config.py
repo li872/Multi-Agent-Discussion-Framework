@@ -19,6 +19,7 @@ class AuditSettings(BaseSettings):
     main_api_base: str = "http://localhost:8000"
     admin_jwt_secret: str = ""
     admin_token: str = ""
+    audit_db_path: str = "audit_data/audit.db"
 
 
 settings = AuditSettings()

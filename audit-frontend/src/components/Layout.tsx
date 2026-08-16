@@ -38,6 +38,12 @@ export default function Layout() {
           <NavLink to="/events" className="app-nav-link">
             审计
           </NavLink>
+          <NavLink to="/admins" className="app-nav-link">
+            管理员
+          </NavLink>
+          <NavLink to="/settings" className="app-nav-link">
+            设置
+          </NavLink>
         </div>
         <button type="button" onClick={logout}>
           退出

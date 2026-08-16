@@ -1,7 +1,7 @@
 # 管理后台接口：主后端侧，供审计后台代理调用。路径 /api/v1/admin/*
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from backend.core.health import probe_components
@@ -274,6 +274,61 @@ async def discussion_messages(
 ) -> Result:
     data = await svc.get_discussion(discussion_id)
     return Result.ok({"items": data["messages"]})
+
+
+@router.get("/discussions/{discussion_id}/stream")
+async def discussion_admin_stream(
+    discussion_id: str,
+    request: Request,
+    after: str | None = Query(default=None),
+):
+    import json
+    import time
+
+    import redis.asyncio as redis
+
+    from backend.config import settings as app_settings
+    from backend.services.realtime.router import HEARTBEAT_SEC, _sse
+    from backend.services.realtime.sse_manager import claim_stream, release_stream
+
+    async def event_generator():
+        stop = await claim_stream(discussion_id, "audit-listen")
+        r = redis.from_url(app_settings.redis_url, decode_responses=True)
+        channel = f"discussion:{discussion_id}:events"
+        pubsub = r.pubsub()
+        await pubsub.subscribe(channel)
+        last_heartbeat = time.monotonic()
+        try:
+            yield _sse("heartbeat", {"watch": True})
+            while True:
+                if stop.is_set() or await request.is_disconnected():
+                    break
+                msg = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=1.0
+                )
+                if msg and msg.get("type") == "message":
+                    payload = json.loads(msg["data"])
+                    yield _sse(payload.get("event", "message"), payload.get("data", {}))
+                elif time.monotonic() - last_heartbeat >= HEARTBEAT_SEC:
+                    yield _sse("heartbeat", {"watch": True})
+                    last_heartbeat = time.monotonic()
+        finally:
+            await release_stream(discussion_id, "audit-listen", stop)
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+            await r.aclose()
+
+    from fastapi.responses import StreamingResponse
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/discussions/{discussion_id}/tokens")

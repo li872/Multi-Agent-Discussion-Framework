@@ -8,6 +8,8 @@ import Discussions from './pages/Discussions'
 import Health from './pages/Health'
 import Characters from './pages/Characters'
 import Events from './pages/Events'
+import Admins from './pages/Admins'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -21,6 +23,8 @@ export default function App() {
           <Route path="/discussions" element={<Discussions />} />
           <Route path="/health" element={<Health />} />
           <Route path="/events" element={<Events />} />
+          <Route path="/admins" element={<Admins />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
