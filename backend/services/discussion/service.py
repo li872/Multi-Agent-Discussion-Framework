@@ -238,17 +238,32 @@ class DiscussionService:
         rows = await self.repo.list_messages(disc.id)
         return [DiscussionService._msg_to_response(m) for m in rows]
 
-    async def list_messages_after(
-        self, discussion_id: str, after: str
-    ) -> list[MessageResponse]:
-        # SSE 重连追赶：业务入口，解析 ISO 时间戳并调用 repository
+    async def count_messages_after(self, discussion_id: str, after: str) -> int:
         disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
         if not disc:
             raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
         from datetime import datetime
 
         after_dt = datetime.fromisoformat(after)
-        rows = await self.repo.list_messages_after(disc.id, after_dt)
+        return await self.repo.count_messages_after(disc.id, after_dt)
+
+    async def list_messages_after(
+        self,
+        discussion_id: str,
+        after: str,
+        *,
+        limit: int | None = None,
+        newest_first: bool = False,
+    ) -> list[MessageResponse]:
+        disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
+        if not disc:
+            raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
+        from datetime import datetime
+
+        after_dt = datetime.fromisoformat(after)
+        rows = await self.repo.list_messages_after(
+            disc.id, after_dt, limit=limit, newest_first=newest_first
+        )
         return [DiscussionService._msg_to_response(m) for m in rows]
 
     @staticmethod

@@ -26,18 +26,27 @@ async def get_current_user(
 ) -> str:
     if credentials is None:
         return ""
-    try:
-        payload = jwt.decode(
-            credentials.credentials,
-            settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],
-        )
-        return payload.get("sub", "")
-    except JWTError:
+    user_id = decode_user_id(credentials.credentials)
+    if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
+    return user_id
+
+
+def decode_user_id(token: str | None) -> str:
+    if not token:
+        return ""
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+        )
+        return payload.get("sub", "") or ""
+    except JWTError:
+        return ""
 
 
 async def require_user(user_id: str = Depends(get_current_user)) -> str:

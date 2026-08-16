@@ -79,11 +79,20 @@ export default function DiscussionRoom() {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
     const connect = () => {
-      // 重连时带上 lastTsRef.current，后端从 PostgreSQL 补发断点之后消息
       const after = lastTsRef.current
-      const url = `/api/v1/discussions/${id}/stream${
-        after ? `?after=${encodeURIComponent(after)}` : ''
-      }`
+      const clientId =
+        sessionStorage.getItem('sse_client_id') ||
+        (() => {
+          const id = crypto.randomUUID()
+          sessionStorage.setItem('sse_client_id', id)
+          return id
+        })()
+      const token = localStorage.getItem('token') || ''
+      const params = new URLSearchParams()
+      if (after) params.set('after', after)
+      params.set('client_id', clientId)
+      if (token) params.set('access_token', token)
+      const url = `/api/v1/discussions/${id}/stream?${params.toString()}`
       es = new EventSource(url)
       setLive(true)
 
@@ -247,6 +256,24 @@ export default function DiscussionRoom() {
                 : m,
             ),
           )
+        } catch {
+          // ignore
+        }
+      })
+
+      es.addEventListener('catchup_batch', (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as { items: Message[] }
+          setMessages((prev) => {
+            const seen = new Set(prev.map((m) => m.id))
+            const extra = (data.items || []).filter((m) => m.id && !seen.has(m.id))
+            extra.forEach((m) => {
+              if (m.created_at && m.created_at > (lastTsRef.current || '')) {
+                lastTsRef.current = m.created_at
+              }
+            })
+            return extra.length ? [...prev, ...extra] : prev
+          })
         } catch {
           // ignore
         }

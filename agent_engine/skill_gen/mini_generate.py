@@ -49,7 +49,7 @@ async def run_mini_skill_generation(
             if content.startswith("markdown"):
                 content = content[len("markdown") :].lstrip()
 
-        await fm.write_file(owner_id, skill_name, "SKILL.md", content)
+        await fm.write_file(f"{owner_id}/{skill_name}", "SKILL.md", content)
 
         # 用第一条引用语当列表页 description（和原项目思路类似）
         quote = ""
