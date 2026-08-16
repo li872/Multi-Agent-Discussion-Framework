@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from backend.config import settings
 from backend.core.exception_handlers import register_exception_handlers
 from backend.core.responses import Result
+from backend.services.admin import router as admin_router
 from backend.services.character.router import router as character_router
 from backend.services.discussion.router import router as discussion_router
 from backend.services.user.router import router as user_router
@@ -14,6 +15,7 @@ app.include_router(user_router)
 app.include_router(character_router)
 app.include_router(discussion_router)
 app.include_router(realtime_router)
+app.include_router(admin_router)
 
 
 @app.get("/api/v1/health")

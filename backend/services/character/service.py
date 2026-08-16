@@ -3,6 +3,7 @@
 # 1. 拼 skill 目录名（名字-perspective）
 # 2. 磁盘创建文件夹 + 写初始 SKILL.md
 # 3. PG 插入 skills 行（file_path 指向目录）
+# 同时把 skill.create / skill.generate / skill.copy / skill.update / skill.delete 等事件写入 audit_events。
 import asyncio
 import uuid
 
@@ -14,6 +15,7 @@ from agent_engine.skill_gen.generation_service import run_full_skill_generation
 from agent_engine.skill_gen.mini_generate import run_mini_skill_generation
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
+from backend.services.audit import AuditRepository
 from backend.services.character.file_manager import SkillFileManager
 from backend.services.character.repository import CharacterRepository
 from backend.services.character.schemas import (
@@ -65,7 +67,9 @@ DEFAULT_RECOMMENDATIONS = [
 
 class CharacterService:
     def __init__(self, session: AsyncSession):
+        self.session = session
         self.repo = CharacterRepository(session)
+        self.audit = AuditRepository(session)
         self.fm = SkillFileManager()
 
     async def create_character(
@@ -90,6 +94,18 @@ class CharacterService:
             is_public=is_public,
             status="ready",
         )
+        # 角色创建是 P2 数据变更事件，记录元数据方便后台追溯
+        await self.audit.record(
+            event_type="skill.create",
+            level="P2",
+            user_id=uid,
+            payload={
+                "skill_id": str(skill.id),
+                "skill_name": skill_name,
+                "is_public": is_public,
+            },
+        )
+        await self.session.commit()
         return self._to_response(skill)
 
     async def generate_character(
@@ -125,6 +141,19 @@ class CharacterService:
             status="generating",
         )
 
+        # 触发 AI 生成即记录 P0 资源消耗事件（LLM/Tavily 调用），后台任务完成后再补一条 complete/error
+        await self.audit.record(
+            event_type="skill.generate",
+            level="P0",
+            user_id=uid,
+            payload={
+                "skill_id": str(skill.id),
+                "skill_name": skill_name,
+                "query": display_name,
+            },
+        )
+        await self.session.commit()
+
         # 与「开始讨论」相同：HTTP 先返回，LLM 不阻塞接口
         asyncio.create_task(
             run_mini_skill_generation(
@@ -152,6 +181,19 @@ class CharacterService:
 
         display_name = skill.name.replace("-perspective", "")
         await self.repo.update(skill, status="generating")
+
+        # 完整 Nuwa 管线涉及 Tavily 搜索 + 多 Agent 并行，属于 P0 资源消耗审计
+        await self.audit.record(
+            event_type="skill.generate",
+            level="P0",
+            user_id=user_id,
+            payload={
+                "skill_id": str(skill.id),
+                "skill_name": skill.name,
+                "query": display_name,
+            },
+        )
+        await self.session.commit()
 
         # 后台运行完整 Nuwa 管线；HTTP 立即返回，前端通过 SSE 看进度
         asyncio.create_task(
@@ -265,6 +307,19 @@ class CharacterService:
             is_public=False,
             status="ready",
         )
+        # 跨用户复制属于 P1 跨用户操作，必须记录源和目标的归属
+        await self.audit.record(
+            event_type="skill.copy",
+            level="P1",
+            user_id=uid,
+            payload={
+                "src_skill_id": str(src.id),
+                "src_owner_id": str(src.owner_id),
+                "dst_skill_id": str(skill.id),
+                "dst_skill_name": dst_name,
+            },
+        )
+        await self.session.commit()
         return self._to_response(skill)
 
     async def get_character(self, skill_id: str, user_id: str = "") -> CharacterResponse:
@@ -279,7 +334,22 @@ class CharacterService:
         if not skill:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND)
         self._ensure_can_write(skill, user_id)
+        changed_fields = {k: v for k, v in kwargs.items() if getattr(skill, k) != v}
         skill = await self.repo.update(skill, **kwargs)
+        if changed_fields:
+            # 角色元数据变更属于 P2 数据修改事件；公开/可见性切换单独按 skill.visibility_changed 处理
+            event_type = "skill.visibility_changed" if "is_public" in changed_fields else "skill.update"
+            await self.audit.record(
+                event_type=event_type,
+                level="P1" if event_type == "skill.visibility_changed" else "P2",
+                user_id=uuid.UUID(user_id),
+                payload={
+                    "skill_id": skill_id,
+                    "skill_name": skill.name,
+                    "changed_fields": list(changed_fields.keys()),
+                },
+            )
+            await self.session.commit()
         return self._to_response(skill)
 
     async def delete_character(self, skill_id: str, owner_id: str) -> None:
@@ -290,6 +360,17 @@ class CharacterService:
             raise BusinessException(ErrorCode.FORBIDDEN)
         await self.fm.delete_skill_dir(str(skill.owner_id), skill.name)
         await self.repo.soft_delete(skill)
+        # 删除是 P1 生命周期事件，保留被删角色名和 owner，便于追溯
+        await self.audit.record(
+            event_type="skill.delete",
+            level="P1",
+            user_id=uuid.UUID(owner_id),
+            payload={
+                "skill_id": skill_id,
+                "skill_name": skill.name,
+            },
+        )
+        await self.session.commit()
 
     async def list_files(self, skill_id: str, user_id: str) -> list[str]:
         skill = await self.repo.find_by_id(uuid.UUID(skill_id))
@@ -314,6 +395,18 @@ class CharacterService:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND)
         self._ensure_can_write(skill, user_id)
         await self.fm.write_file(str(skill.owner_id), skill.name, path, content)
+        # 文件写入是 P2 数据修改事件，记录被修改 skill 和文件路径，便于内容变更追溯
+        await self.audit.record(
+            event_type="skill.file_write",
+            level="P2",
+            user_id=uuid.UUID(user_id),
+            payload={
+                "skill_id": skill_id,
+                "skill_name": skill.name,
+                "file_path": path,
+            },
+        )
+        await self.session.commit()
 
     def _ensure_can_read(self, skill, user_id: str) -> None:
         if skill.is_public:

@@ -1,4 +1,6 @@
 # 注册/登录规则 + bcrypt + JWT
+# 同时把 user.register / user.login / user.login_failed 等关键事件写入 audit_events，
+# 用于后续管理后台追溯与合规审计。
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -10,13 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import settings
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
+from backend.services.audit import AuditRepository
 from backend.services.user.repository import UserRepository
 from backend.services.user.schemas import TokenResponse, UserResponse, UserUpdateRequest
 
 
 class UserService:
     def __init__(self, session: AsyncSession):
+        self.session = session
         self.repo = UserRepository(session)
+        self.audit = AuditRepository(session)
         self.pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
     async def register(
@@ -39,6 +44,14 @@ class UserService:
 
         password_hash = self.pwd_context.hash(password)
         user = await self.repo.create(username, password_hash, phone)
+        # 注册是 P1 生命周期事件，记录新用户 ID 和注册信息
+        await self.audit.record(
+            event_type="user.register",
+            level="P1",
+            user_id=user.id,
+            payload={"username": username, "phone": phone},
+        )
+        await self.session.commit()
         token = self._issue_token(user.id)
         return token, self._to_response(user)
 
@@ -47,17 +60,39 @@ class UserService:
     ) -> tuple[TokenResponse, UserResponse]:
         user = await self.repo.find_by_username(username)
         if not user:
+            # 登录失败也审计：P0 安全事件，便于发现撞库/暴力破解
+            await self.audit.record(
+                event_type="user.login_failed",
+                level="P0",
+                payload={"username": username, "reason": "user_not_found"},
+            )
+            await self.session.commit()
             raise BusinessException(
                 ErrorCode.USER_NOT_FOUND,
                 "Invalid username or password",
             )
 
         if not self.pwd_context.verify(password, user.password_hash):
+            await self.audit.record(
+                event_type="user.login_failed",
+                level="P0",
+                user_id=user.id,
+                payload={"username": username, "reason": "wrong_password"},
+            )
+            await self.session.commit()
             raise BusinessException(
                 ErrorCode.WRONG_PASSWORD,
                 "Invalid username or password",
             )
 
+        # 登录成功是 P0 安全事件，必须保留可审计的身份证据
+        await self.audit.record(
+            event_type="user.login",
+            level="P0",
+            user_id=user.id,
+            payload={"username": username},
+        )
+        await self.session.commit()
         token = self._issue_token(user.id)
         return token, self._to_response(user)
 
@@ -75,7 +110,8 @@ class UserService:
 
         changed = False
 
-        if req.username is not None and req.username != user.username:
+        username_changed = req.username is not None and req.username != user.username
+        if username_changed:
             existing = await self.repo.find_by_username(req.username)
             if existing and str(existing.id) != user_id:
                 raise BusinessException(
@@ -84,7 +120,8 @@ class UserService:
             user.username = req.username
             changed = True
 
-        if req.phone is not None and req.phone != user.phone:
+        phone_changed = req.phone is not None and req.phone != user.phone
+        if phone_changed:
             existing_phone = await self.repo.find_by_phone(req.phone)
             if existing_phone and str(existing_phone.id) != user_id:
                 raise BusinessException(
@@ -93,7 +130,8 @@ class UserService:
             user.phone = req.phone
             changed = True
 
-        if req.new_password:
+        password_changed = bool(req.new_password)
+        if password_changed:
             if not req.old_password:
                 raise BusinessException(
                     ErrorCode.INVALID_PARAMS, "Old password required to change password"
@@ -107,6 +145,29 @@ class UserService:
 
         if changed:
             user = await self.repo.update(user)
+            # 关键资料变更单独审计，level 按 CLAUDE.md 要求
+            if username_changed:
+                await self.audit.record(
+                    event_type="user.username_changed",
+                    level="P0",
+                    user_id=user.id,
+                    payload={"new_username": user.username},
+                )
+            if phone_changed:
+                await self.audit.record(
+                    event_type="user.phone_changed",
+                    level="P2",
+                    user_id=user.id,
+                    payload={"new_phone": user.phone},
+                )
+            if password_changed:
+                await self.audit.record(
+                    event_type="user.password_changed",
+                    level="P0",
+                    user_id=user.id,
+                    payload={},
+                )
+            await self.session.commit()
 
         return self._to_response(user)
 
