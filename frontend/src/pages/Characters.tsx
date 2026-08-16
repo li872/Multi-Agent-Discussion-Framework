@@ -10,6 +10,7 @@ import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
+import { displayName } from '../lib/displayName'
 type Character = {
   id: string
   name: string
@@ -167,7 +168,7 @@ export default function Characters() {
       <ul className="checklist">
         {characters.map((c) => (
           <li key={c.id}>
-            <strong>{c.name}</strong>
+            <strong>{displayName(c.name)}</strong>
             <span> · {c.status}</span>
             {c.status === 'generating' && (
               <span className="muted">（后台生成中，约数十秒）</span>
@@ -186,7 +187,7 @@ export default function Characters() {
               >
                 {c.is_public ? '设为私有' : '公开到画廊'}
               </button>
-              <button type="button" onClick={() => onDelete(c.id, c.name)}>
+              <button type="button" onClick={() => onDelete(c.id, displayName(c.name))}>
                 删除
               </button>
             </div>

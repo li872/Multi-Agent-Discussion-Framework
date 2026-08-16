@@ -9,9 +9,29 @@
 
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
+
+const REC_CACHE_KEY = 'madf_recommendations'
+
+type RecCache = { items: string[]; source: string }
+
+function readRecCache(): RecCache | null {
+  try {
+    const raw = sessionStorage.getItem(REC_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as RecCache
+    if (Array.isArray(parsed.items) && parsed.items.length > 0) return parsed
+  } catch {
+    // 缓存损坏时忽略，重新请求
+  }
+  return null
+}
+
+function writeRecCache(data: RecCache) {
+  sessionStorage.setItem(REC_CACHE_KEY, JSON.stringify(data))
+}
 
 type ProgressEvent = {
   level: 'main' | 'sub' | 'tool' | 'done' | 'error'
@@ -42,18 +62,36 @@ export default function GenerateSkill() {
   const [subAgents, setSubAgents] = useState<Set<string>>(new Set())
   const [toolLogs, setToolLogs] = useState<string[]>([])
   const [doneInfo, setDoneInfo] = useState<ProgressEvent | null>(null)
+  const [recLoading, setRecLoading] = useState(false)
+
+  async function loadRecommendations(force = false) {
+    if (!force) {
+      const cached = readRecCache()
+      if (cached) {
+        setRecommendations(cached.items)
+        setRecSource(cached.source)
+        return
+      }
+    }
+    setRecLoading(true)
+    try {
+      const res = await api.get<ApiResult<{ items: string[]; source: string }>>(
+        '/characters/recommendations',
+      )
+      const data = res.data.data
+      const next = { items: data.items || [], source: data.source || 'fallback' }
+      setRecommendations(next.items)
+      setRecSource(next.source)
+      writeRecCache(next)
+    } catch {
+      // 推荐接口失败时静默，不影响主功能
+    } finally {
+      setRecLoading(false)
+    }
+  }
 
   useEffect(() => {
-    api
-      .get<ApiResult<{ items: string[]; source: string }>>('/characters/recommendations')
-      .then((res) => {
-        const data = res.data.data
-        setRecommendations(data.items || [])
-        setRecSource(data.source || 'fallback')
-      })
-      .catch(() => {
-        // 推荐接口失败时静默，不影响主功能
-      })
+    loadRecommendations(false)
   }, [])
 
   function onPickRecommendation(person: string) {
@@ -171,6 +209,14 @@ export default function GenerateSkill() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            style={{ marginTop: 12 }}
+            disabled={recLoading}
+            onClick={() => loadRecommendations(true)}
+          >
+            {recLoading ? '换一个…' : '换一个'}
+          </button>
         </div>
       )}
 

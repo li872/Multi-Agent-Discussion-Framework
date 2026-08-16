@@ -426,3 +426,12 @@ code {
 .app-main {
   flex: 1;
 }
+
+.rich-text {
+  text-align: left;
+}
+
+.rich-text p {
+  margin: 0.35em 0;
+  white-space: pre-wrap;
+}

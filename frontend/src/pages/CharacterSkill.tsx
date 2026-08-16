@@ -11,6 +11,7 @@ import Editor from '@monaco-editor/react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
+import { displayName } from '../lib/displayName'
 
 type Character = {
   id: string
@@ -109,7 +110,7 @@ export default function CharacterSkill() {
       <div className="row">
         <Link to="/characters">← 我的角色</Link>
       </div>
-      <h1>{character ? `${character.name} · Skill` : '角色 Skill'}</h1>
+      <h1>{character ? `${displayName(character.name)} · Skill` : '角色 Skill'}</h1>
       {character && <p className="muted">状态：{character.status}</p>}
       {loading && <p className="muted">加载中…</p>}
       {error && <p className="error">{error}</p>}
