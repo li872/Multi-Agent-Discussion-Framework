@@ -360,3 +360,13 @@ code {
   border-radius: 8px;
   overflow: hidden;
 }
+
+.topic-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.topic-row input {
+  flex: 1;
+}

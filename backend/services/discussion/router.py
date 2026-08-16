@@ -9,6 +9,7 @@ from backend.services.discussion.schemas import (
     DiscussionResponse,
     InterveneRequest,
     MessageResponse,
+    TopicGenerateResponse,
 )
 from backend.services.discussion.service import DiscussionService, get_discussion_service
 
@@ -45,6 +46,16 @@ async def list_discussions(
             "has_more": has_more,
         }
     )
+
+
+# 必须在 /{discussion_id} 之前注册，否则 "generate-topic" 会被当成 id
+@router.get("/generate-topic")
+async def generate_topic(
+    user_id: str = Depends(require_user),
+    svc: DiscussionService = Depends(get_discussion_service),
+) -> Result[TopicGenerateResponse]:
+    result = await svc.generate_topic()
+    return Result.ok(result)
 
 
 @router.get("/{discussion_id}")

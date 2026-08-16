@@ -15,6 +15,9 @@ export default function NewDiscussion() {
   const [duration, setDuration] = useState(60)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // AI 生成主题：请求中禁用「换一个」，避免连点打爆 LLM
+  const [topicLoading, setTopicLoading] = useState(false)
+  const [topicSource, setTopicSource] = useState('')
 
   useEffect(() => {
     api
@@ -27,6 +30,27 @@ export default function NewDiscussion() {
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     )
+  }
+
+  // 调用后端 GET /discussions/generate-topic（LLM 直调，失败会 fallback）
+  async function onGenerateTopic() {
+    setTopicLoading(true)
+    setError('')
+    try {
+      const { data } = await api.get<
+        ApiResult<{ topic: string; source: string }>
+      >('/discussions/generate-topic')
+      if (data.code !== 200 || !data.data?.topic) {
+        setError(data.message || '生成主题失败')
+        return
+      }
+      setTopic(data.data.topic)
+      setTopicSource(data.data.source)
+    } catch {
+      setError('生成主题失败（后端或 LLM 不可用）')
+    } finally {
+      setTopicLoading(false)
+    }
   }
 
   async function onSubmit(e: FormEvent) {
@@ -60,12 +84,26 @@ export default function NewDiscussion() {
       <div className="row">
         <Link to="/discussions">← 我的讨论</Link>
         <LogoutButton />
-      </div>     
+      </div>
       <h1>新建讨论</h1>
       <form onSubmit={onSubmit} className="card">
         <label>
           主题
-          <input value={topic} onChange={(e) => setTopic(e.target.value)} />
+          <div className="topic-row">
+            <input value={topic} onChange={(e) => setTopic(e.target.value)} />
+            <button
+              type="button"
+              onClick={onGenerateTopic}
+              disabled={topicLoading}
+            >
+              {topicLoading ? '生成中…' : '换一个'}
+            </button>
+          </div>
+          {topicSource && (
+            <p className="muted">
+              来源：{topicSource === 'llm' ? 'AI 生成' : '本地兜底'}
+            </p>
+          )}
         </label>
         <label>
           时长（秒）
