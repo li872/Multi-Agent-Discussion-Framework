@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { auditApi } from '../api/client'
 import type { ApiResult } from '../api/client'
 
 export default function Login() {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('audit123')
   const [error, setError] = useState('')
@@ -25,7 +26,8 @@ export default function Login() {
       }
       localStorage.setItem('audit_token', data.data.token)
       localStorage.setItem('audit_admin', JSON.stringify(data.data.admin))
-      navigate('/', { replace: true })
+      const redirect = params.get('redirect') || '/'
+      navigate(redirect.startsWith('/') ? redirect : '/', { replace: true })
     } catch {
       setError('登录失败，请检查审计后端是否启动')
     } finally {

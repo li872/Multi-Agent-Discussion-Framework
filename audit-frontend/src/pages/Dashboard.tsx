@@ -1,0 +1,59 @@
+import { useEffect, useState } from 'react'
+import { auditApi } from '../api/client'
+import type { ApiResult } from '../api/client'
+
+type Stats = { users: number; characters: number; discussions: number }
+type Health = {
+  components: Record<string, { status: string; latency_ms?: number; error?: string }>
+}
+
+export default function Dashboard() {
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [health, setHealth] = useState<Health | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    Promise.all([
+      auditApi.get<ApiResult<Stats>>('/admin/stats/overview'),
+      auditApi.get<ApiResult<Health>>('/admin/health'),
+    ])
+      .then(([s, h]) => {
+        setStats(s.data.data)
+        setHealth(h.data.data)
+      })
+      .catch(() => setError('加载仪表盘失败'))
+  }, [])
+
+  return (
+    <div className="page wide">
+      <h1>仪表盘</h1>
+      {error && <p className="error">{error}</p>}
+      <div className="stat-grid">
+        <div className="card">
+          <span className="muted">用户</span>
+          <strong>{stats ? stats.users : '…'}</strong>
+        </div>
+        <div className="card">
+          <span className="muted">角色</span>
+          <strong>{stats ? stats.characters : '…'}</strong>
+        </div>
+        <div className="card">
+          <span className="muted">讨论</span>
+          <strong>{stats ? stats.discussions : '…'}</strong>
+        </div>
+      </div>
+      <h2>组件状态</h2>
+      <ul className="checklist">
+        {health &&
+          Object.entries(health.components || {}).map(([name, c]) => (
+            <li key={name}>
+              <span className={`status-pill ${c.status}`}>{c.status}</span>
+              <strong> {name}</strong>
+              {c.latency_ms != null && <span className="muted"> · {c.latency_ms}ms</span>}
+              {c.error && <span className="error"> · {c.error}</span>}
+            </li>
+          ))}
+      </ul>
+    </div>
+  )
+}
