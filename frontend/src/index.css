@@ -370,3 +370,11 @@ code {
 .topic-row input {
   flex: 1;
 }
+
+.quote {
+  font-style: italic;
+  color: var(--text-h);
+  margin: 6px 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent-border);
+}

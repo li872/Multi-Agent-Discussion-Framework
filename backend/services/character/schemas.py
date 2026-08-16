@@ -36,6 +36,8 @@ class CharacterResponse(BaseModel):
     status: str
     created_at: str
     updated_at: str
+    # 从 SKILL.md 提取的 > 引用语，最多 5 条；description 优先用第一条
+    quotes: list[str] = []
 
 
 class CharacterListResponse(BaseModel):
