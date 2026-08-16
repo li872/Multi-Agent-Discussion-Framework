@@ -139,3 +139,22 @@ class DiscussionRepository:
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_messages_after(
+        self, discussion_id: uuid.UUID, after: datetime
+    ) -> list[DiscussionMessage]:
+        # SSE 重连追赶：查询某个时间戳之后的消息（断点用 created_at，不用 id，避免并发顺序差异）
+        stmt = (
+            select(DiscussionMessage)
+            .where(
+                DiscussionMessage.deleted_at.is_(None),
+                DiscussionMessage.discussion_id == discussion_id,
+                DiscussionMessage.created_at > after,
+            )
+            .order_by(
+                DiscussionMessage.round_number.asc(),
+                DiscussionMessage.created_at.asc(),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

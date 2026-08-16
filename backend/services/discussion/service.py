@@ -159,20 +159,34 @@ class DiscussionService:
         if not disc:
             raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
         rows = await self.repo.list_messages(disc.id)
-        return [
-            MessageResponse(
-                id=str(m.id),
-                discussion_id=str(m.discussion_id),
-                round_number=m.round_number,
-                agent_id=str(m.agent_id) if m.agent_id else None,
-                agent_name=m.agent_name,
-                message_type=m.message_type,
-                content=m.content,
-                confidence=m.confidence,
-                created_at=m.created_at.isoformat(),
-            )
-            for m in rows
-        ]
+        return [DiscussionService._msg_to_response(m) for m in rows]
+
+    async def list_messages_after(
+        self, discussion_id: str, after: str
+    ) -> list[MessageResponse]:
+        # SSE 重连追赶：业务入口，解析 ISO 时间戳并调用 repository
+        disc = await self.repo.find_by_id(uuid.UUID(discussion_id))
+        if not disc:
+            raise BusinessException(ErrorCode.DISCUSSION_NOT_FOUND)
+        from datetime import datetime
+
+        after_dt = datetime.fromisoformat(after)
+        rows = await self.repo.list_messages_after(disc.id, after_dt)
+        return [DiscussionService._msg_to_response(m) for m in rows]
+
+    @staticmethod
+    def _msg_to_response(m) -> MessageResponse:
+        return MessageResponse(
+            id=str(m.id),
+            discussion_id=str(m.discussion_id),
+            round_number=m.round_number,
+            agent_id=str(m.agent_id) if m.agent_id else None,
+            agent_name=m.agent_name,
+            message_type=m.message_type,
+            content=m.content,
+            confidence=m.confidence,
+            created_at=m.created_at.isoformat(),
+        )
 
     async def intervene(
         self, discussion_id: str, user_id: str, content: str
