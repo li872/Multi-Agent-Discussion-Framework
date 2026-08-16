@@ -18,8 +18,12 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('token')
+      // token 过期时带回当前路径，登录后可继续刚才的页面
       if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login'
+        const redirect = encodeURIComponent(
+          window.location.pathname + window.location.search,
+        )
+        window.location.href = `/login?redirect=${redirect}`
       }
     }
     return Promise.reject(err)

@@ -1,20 +1,16 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import Layout from './components/Layout'
 import Login from './pages/Login'
+import Register from './pages/Register'
+import Home from './pages/Home'
 import NewDiscussion from './pages/NewDiscussion'
 import DiscussionRoom from './pages/DiscussionRoom'
 import Characters from './pages/Characters'
 import Discussions from './pages/Discussions'
-import Register from './pages/Register'
 import CharacterSkill from './pages/CharacterSkill'
 import Gallery from './pages/Gallery'
 import GenerateSkill from './pages/GenerateSkill'
 import Profile from './pages/Profile'
-
-function RequireAuth({ children }: { children: React.ReactNode }) {
-  const token = localStorage.getItem('token')
-  if (!token) return <Navigate to="/login" replace />
-  return children
-}
 
 export default function App() {
   return (
@@ -22,71 +18,19 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route
-          path="/discussions/new"
-          element={
-            <RequireAuth>
-              <NewDiscussion />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/discussions/:id"
-          element={
-            <RequireAuth>
-              <DiscussionRoom />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/characters/:id/skill"
-          element={
-            <RequireAuth>
-              <CharacterSkill />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/characters"
-          element={
-            <RequireAuth>
-              <Characters />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/discussions"
-          element={
-            <RequireAuth>
-              <Discussions />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/gallery"
-          element={
-            <RequireAuth>
-              <Gallery />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/generate"
-          element={
-            <RequireAuth>
-              <GenerateSkill />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <RequireAuth>
-              <Profile />
-            </RequireAuth>
-          }
-        />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        {/* 需登录的业务页统一走 Layout（导航 + 鉴权） */}
+        <Route element={<Layout />}>
+          <Route path="/" element={<Home />} />
+          <Route path="/discussions/new" element={<NewDiscussion />} />
+          <Route path="/discussions/:id" element={<DiscussionRoom />} />
+          <Route path="/discussions" element={<Discussions />} />
+          <Route path="/characters/:id/skill" element={<CharacterSkill />} />
+          <Route path="/characters" element={<Characters />} />
+          <Route path="/gallery" element={<Gallery />} />
+          <Route path="/generate" element={<GenerateSkill />} />
+          <Route path="/profile" element={<Profile />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   )

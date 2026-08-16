@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
-import LogoutButton from '../components/LogoutButton'
 
 type Discussion = {
   id: string
@@ -46,11 +45,6 @@ export default function Discussions() {
 
   return (
     <div className="page">
-      <div className="row">
-        <Link to="/characters">← 我的角色</Link>
-        <Link to="/discussions/new">新建讨论</Link>
-        <LogoutButton />
-      </div>
       <h1>我的讨论</h1>
       <div className="row" style={{ marginTop: 16, marginBottom: 8 }}>
         <input
@@ -59,6 +53,7 @@ export default function Discussions() {
           onChange={(e) => setSearch(e.target.value)}
           style={{ flex: 1, maxWidth: 400 }}
         />
+        <Link to="/discussions/new">新建讨论</Link>
       </div>
       {error && <p className="error">{error}</p>}
       {items.length === 0 && !error && <p>暂无讨论</p>}

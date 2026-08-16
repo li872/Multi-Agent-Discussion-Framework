@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
-import LogoutButton from '../components/LogoutButton'
-
 type Character = {
   id: string
   name: string
@@ -49,11 +47,6 @@ export default function Gallery() {
 
   return (
     <div className="page">
-      <div className="row">
-        <Link to="/characters">← 我的角色</Link>
-        <Link to="/discussions">我的讨论</Link>
-        <LogoutButton />
-      </div>
       <h1>公开画廊</h1>
       <div className="row" style={{ marginTop: 16, marginBottom: 8 }}>
         <input

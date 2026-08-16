@@ -378,3 +378,51 @@ code {
   padding-left: 10px;
   border-left: 3px solid var(--accent-border);
 }
+
+/* 共享顶栏：业务页统一导航，鉴权在 Layout */
+.app-shell {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  text-align: left;
+}
+
+.app-brand {
+  font-weight: 700;
+  color: var(--text-h);
+  text-decoration: none;
+  margin-right: 8px;
+}
+
+.app-nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+}
+
+.app-nav-link {
+  color: var(--text);
+  text-decoration: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.app-nav-link.active {
+  color: var(--text-h);
+  background: var(--accent-bg);
+}
+
+.app-main {
+  flex: 1;
+}

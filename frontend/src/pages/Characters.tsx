@@ -10,8 +10,6 @@ import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
-import LogoutButton from '../components/LogoutButton'
-
 type Character = {
   id: string
   name: string
@@ -127,11 +125,6 @@ export default function Characters() {
 
   return (
     <div className="page">
-      <div className="row">
-        <Link to="/discussions">我的讨论</Link>
-        <Link to="/gallery">公开画廊</Link>
-        <LogoutButton />
-      </div>
       <h1>我的角色</h1>
 
       <form className="card" onSubmit={onCreate}>

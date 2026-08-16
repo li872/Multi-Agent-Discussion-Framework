@@ -11,7 +11,6 @@ import Editor from '@monaco-editor/react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
-import LogoutButton from '../components/LogoutButton'
 
 type Character = {
   id: string
@@ -109,7 +108,6 @@ export default function CharacterSkill() {
     <div className="page wide">
       <div className="row">
         <Link to="/characters">← 我的角色</Link>
-        <LogoutButton />
       </div>
       <h1>{character ? `${character.name} · Skill` : '角色 Skill'}</h1>
       {character && <p className="muted">状态：{character.status}</p>}

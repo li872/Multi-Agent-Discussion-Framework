@@ -3,7 +3,6 @@ import type { FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
-import LogoutButton from '../components/LogoutButton'
 
 type Discussion = {
   id: string
@@ -359,7 +358,6 @@ export default function DiscussionRoom() {
           状态：{discussion?.status || '…'}
           {live ? ' · 实时' : ' · 未连接'}
         </span>
-        <LogoutButton />
       </div>
       <h1>{discussion?.topic || '讨论室'}</h1>
       {discussion?.status === 'pending' && (
