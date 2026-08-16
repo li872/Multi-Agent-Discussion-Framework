@@ -1,4 +1,5 @@
 # 讨论业务：创建 / 查询 / 启动多轮编排 / 消息列表 / 用户介入
+# 关键操作同时写入 audit_events，便于管理后台追溯和合规审计。
 
 import asyncio
 import uuid
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent_engine.discussion.multi_orchestrator import AgentSpec, run_multi_discussion
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
+from backend.services.audit import AuditRepository
 from backend.services.character.repository import CharacterRepository
 from backend.services.discussion.repository import DiscussionRepository
 from backend.services.discussion.schemas import (
@@ -23,8 +25,10 @@ from backend.services.user.repository import UserRepository
 
 class DiscussionService:
     def __init__(self, session: AsyncSession):
+        self.session = session
         self.repo = DiscussionRepository(session)
         self.char_repo = CharacterRepository(session)
+        self.audit = AuditRepository(session)
 
     async def create_discussion(
         self, owner_id: str, req: DiscussionCreateRequest
@@ -47,6 +51,19 @@ class DiscussionService:
 
         disc = await self.repo.create_discussion(uid, req.topic, req.duration)
         await self.repo.add_agents(disc.id, skill_ids)
+        # 讨论创建是 P1 生命周期事件，记录主题/时长/参与角色，便于后续审计与 token 用量关联
+        await self.audit.record(
+            event_type="discussion.create",
+            level="P1",
+            user_id=uid,
+            discussion_id=disc.id,
+            payload={
+                "topic": req.topic,
+                "duration": req.duration,
+                "character_ids": req.character_ids,
+            },
+        )
+        await self.session.commit()
         agents = await self._get_agent_infos(disc.id)
         return self._to_response(disc, agents)
 
@@ -89,6 +106,15 @@ class DiscussionService:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND, "No valid skills")
 
         await self.repo.update_status(disc, "starting")
+        # 启动编排是 P1 生命周期事件，关联 discussion_id 方便后续按讨论查审计
+        await self.audit.record(
+            event_type="discussion.start",
+            level="P1",
+            user_id=owner_id,
+            discussion_id=disc.id,
+            payload={"topic": disc.topic, "duration": disc.duration},
+        )
+        await self.session.commit()
 
         asyncio.create_task(
             run_multi_discussion(
@@ -123,6 +149,14 @@ class DiscussionService:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND, "No valid skills")
 
         await self.repo.update_status(disc, "starting")
+        await self.audit.record(
+            event_type="discussion.resume",
+            level="P1",
+            user_id=owner_id,
+            discussion_id=disc.id,
+            payload={"topic": disc.topic, "duration": disc.duration},
+        )
+        await self.session.commit()
         asyncio.create_task(
             run_multi_discussion(
                 discussion_id=disc.id,
@@ -218,6 +252,15 @@ class DiscussionService:
             content=content.strip(),
             agent_name=username,
         )
+        # 用户介入属于 P2 内容变更事件，记录谁说了什么，便于后续内容安全审计
+        await self.audit.record(
+            event_type="user_intervened",
+            level="P2",
+            user_id=user_id,
+            discussion_id=disc.id,
+            payload={"round_number": round_number, "content_preview": content[:200]},
+        )
+        await self.session.commit()
         await publish_discussion_event(
             str(disc.id),
             "message",
@@ -252,6 +295,15 @@ class DiscussionService:
         if str(disc.owner_id) != user_id:
             raise BusinessException(ErrorCode.FORBIDDEN, "Not your discussion")
         await self.repo.soft_delete(disc)
+        # 讨论删除是 P1 生命周期事件，记录主题和删除者
+        await self.audit.record(
+            event_type="discussion.delete",
+            level="P1",
+            user_id=user_id,
+            discussion_id=disc.id,
+            payload={"topic": disc.topic},
+        )
+        await self.session.commit()
 
     async def _get_agent_infos(self, discussion_id: uuid.UUID) -> list[AgentInfo]:
         rows = await self.repo.get_agents(discussion_id)

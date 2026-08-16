@@ -12,6 +12,7 @@ from pathlib import Path
 
 from agent_engine.skill_gen.nvwa_agent.agent import create_nvwa_agent
 from backend.deps import async_session_factory
+from backend.services.audit import AuditRepository
 from backend.services.character.file_manager import SKILLS_ROOT
 from backend.services.character.repository import CharacterRepository
 from backend.services.realtime.publisher import publish_generation_event
@@ -181,11 +182,24 @@ async def run_full_skill_generation(
             {"file_count": file_count, "source_count": source_count},
         )
 
-        # 更新数据库元数据
+        # 更新数据库元数据并记录生成完成事件
         async with async_session_factory() as session:
             repo = CharacterRepository(session)
+            audit = AuditRepository(session)
             skill = await repo.find_by_id(skill_id)
             if skill:
+                await audit.record(
+                    event_type="skill.generate_complete",
+                    level="P1",
+                    user_id=owner_id,
+                    payload={
+                        "skill_id": str(skill_id),
+                        "skill_name": skill_name,
+                        "file_count": file_count,
+                        "source_count": source_count,
+                        "subagents_spawned": 0,  # 后续 deepagent 事件暴露子 Agent 数时补全
+                    },
+                )
                 await repo.update(
                     skill,
                     status="ready",
@@ -198,6 +212,17 @@ async def run_full_skill_generation(
         _publish(skill_id, "error", f"生成失败：{exc}")
         async with async_session_factory() as session:
             repo = CharacterRepository(session)
+            audit = AuditRepository(session)
             skill = await repo.find_by_id(skill_id)
             if skill:
+                await audit.record(
+                    event_type="skill.generate_error",
+                    level="P1",
+                    user_id=owner_id,
+                    payload={
+                        "skill_id": str(skill_id),
+                        "skill_name": skill_name,
+                        "error": str(exc),
+                    },
+                )
                 await repo.update(skill, status="error")

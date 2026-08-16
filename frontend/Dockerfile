@@ -1,11 +1,13 @@
 # 前端 React 容器：构建后由 Nginx 托管，并反向代理 /api 到后端
 # 技术：Vite build + Nginx 静态托管 + 反向代理
+# 基础镜像已预先从 DaoCloud 镜像源拉取到本地并 retag 为官方名称
 
 # 阶段 1：构建
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# 国内 npm 官方源经常断开，改用淘宝镜像
+RUN npm config set registry https://registry.npmmirror.com && npm ci
 COPY . .
 RUN npm run build
 

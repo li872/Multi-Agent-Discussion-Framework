@@ -11,6 +11,7 @@ import uuid
 
 from agent_engine.llm import get_chat_llm
 from backend.deps import async_session_factory
+from backend.services.audit import AuditRepository
 from backend.services.character.file_manager import SkillFileManager
 from backend.services.character.repository import CharacterRepository
 
@@ -59,18 +60,40 @@ async def run_mini_skill_generation(
 
         async with async_session_factory() as session:
             repo = CharacterRepository(session)
+            audit = AuditRepository(session)
             skill = await repo.find_by_id(skill_id)
             if not skill:
                 return
+            await audit.record(
+                event_type="skill.generate_complete",
+                level="P1",
+                user_id=owner_id,
+                payload={
+                    "skill_id": str(skill_id),
+                    "skill_name": skill_name,
+                    "source": "mini_llm",
+                },
+            )
             await repo.update(
                 skill,
                 status="ready",
                 description=quote or description or f"{display_name} 的角色技能",
             )
-    except Exception:
+    except Exception as exc:
         logger.exception("mini skill generation failed: %s", skill_id)
         async with async_session_factory() as session:
             repo = CharacterRepository(session)
+            audit = AuditRepository(session)
             skill = await repo.find_by_id(skill_id)
             if skill:
+                await audit.record(
+                    event_type="skill.generate_error",
+                    level="P1",
+                    user_id=owner_id,
+                    payload={
+                        "skill_id": str(skill_id),
+                        "skill_name": skill_name,
+                        "error": str(exc),
+                    },
+                )
                 await repo.update(skill, status="error")
