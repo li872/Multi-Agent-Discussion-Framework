@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: madf
+      POSTGRES_PASSWORD: madf
+      POSTGRES_DB: madf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U madf -d madf"]
+      interval: 2s
+      timeout: 5s
+      retries: 40
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    image: madf-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+      DB_USER: madf
+      DB_PASSWORD: madf
+      DB_NAME: madf
+      JWT_SECRET: ci-jwt
+      ADMIN_JWT_SECRET: ci-admin
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 45s
+
+  audit-backend:
+    image: madf-audit-backend
+    depends_on:
+      - backend
+    environment:
+      MAIN_API_BASE: http://backend:8000
+      AUDIT_JWT_SECRET: ci-audit
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/v1/audit/health')",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  frontend:
+    image: madf-frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+  audit-frontend:
+    image: madf-audit-frontend
+    depends_on:
+      - audit-backend
+    ports:
+      - "8081:80"
