@@ -14,6 +14,11 @@ from dataclasses import dataclass
 from agent_engine.discussion.circuit_breaker import CircuitBreaker
 from agent_engine.discussion.factory import create_roundtable_agent
 from agent_engine.llm import get_chat_llm
+from agent_engine.token_meter import (
+    estimate_tokens_from_text,
+    extract_token_count,
+    record_token_usage,
+)
 from backend.deps import async_session_factory
 from backend.models.base import utcnow
 from backend.models.discussion_message import DiscussionMessage
@@ -115,9 +120,12 @@ def _last_text(result) -> str:
     return str(content or "")
 
 
-async def _astream_graph(agent, prompt: str, idle: float = 10.0):
+async def _astream_graph(
+    agent, prompt: str, idle: float = 10.0, usage_out: list[int] | None = None
+):
     # deepagent 真流式：听 on_chat_model_stream；idle 秒无新 token 则停
     last = time.monotonic()
+    usage_tokens = 0
     agen = agent.astream_events(
         {"messages": [{"role": "user", "content": prompt}]},
         version="v2",
@@ -131,7 +139,12 @@ async def _astream_graph(agent, prompt: str, idle: float = 10.0):
             except asyncio.TimeoutError:
                 logger.warning("graph stream idle timeout after %.1fs", idle)
                 break
-            if ev.get("event") != "on_chat_model_stream":
+            kind = ev.get("event")
+            if kind == "on_chat_model_end":
+                output = (ev.get("data") or {}).get("output")
+                usage_tokens += extract_token_count(output)
+                continue
+            if kind != "on_chat_model_stream":
                 continue
             chunk = (ev.get("data") or {}).get("chunk")
             piece = getattr(chunk, "content", None) if chunk is not None else None
@@ -146,7 +159,8 @@ async def _astream_graph(agent, prompt: str, idle: float = 10.0):
         aclose = getattr(agen, "aclose", None)
         if callable(aclose):
             await aclose()
-
+        if usage_out is not None:
+            usage_out.append(usage_tokens)
 
 async def _astream_chunks(
     llm, prompt: str, per_chunk_timeout: float = 10.0
@@ -178,6 +192,28 @@ async def _astream_chunks(
         await agen.aclose()
 
 
+async def _record_call_tokens(
+    *,
+    prompt: str,
+    output_text: str,
+    message=None,
+    tokens: int | None = None,
+    user_id: uuid.UUID | None,
+    discussion_id: uuid.UUID,
+    kind: str = "llm",
+) -> None:
+    n = int(tokens or 0)
+    if n <= 0:
+        n = extract_token_count(message)
+    if n <= 0:
+        n = estimate_tokens_from_text(prompt, output_text)
+    await record_token_usage(
+        tokens=n,
+        user_id=user_id,
+        discussion_id=discussion_id,
+        kind=kind,
+    )
+
 def _pick_speaker(decisions: list[Decision]) -> tuple[Decision, bool]:
     speakers = [d for d in decisions if d.decision == "speak"]
     if speakers:
@@ -199,6 +235,7 @@ async def run_multi_discussion(
     duration: int,
     agents: list[AgentSpec],
     resume: bool = False,
+    owner_id: uuid.UUID | None = None,
 ) -> None:
     if not agents:
         return
@@ -269,9 +306,11 @@ async def run_multi_discussion(
                 )
 
                 intro_parts: list[str] = []
+                intro_usage = 0
                 # astream：异步迭代模型输出的增量文本（每包常是若干 token，代码里叫 chunk）
                 # 用 _astream_chunks 做逐 token 10s 超时保护，避免开场白挂死
                 async for chunk in _astream_chunks(host_llm, intro_prompt, 10.0):
+                    intro_usage = max(intro_usage, extract_token_count(chunk))
                     piece = chunk.content
                     text = piece if isinstance(piece, str) else str(piece or "")
                     if not text:
@@ -282,11 +321,20 @@ async def run_multi_discussion(
                         "host_intro_chunk",
                         {
                             "temp_id": intro_temp_id,
+                            "discussion_id": str(discussion_id),
                             "content": text,
                         },
                     )
 
                 intro_text = "".join(intro_parts).strip()
+                await _record_call_tokens(
+                    prompt=intro_prompt,
+                    output_text=intro_text,
+                    tokens=intro_usage,
+                    user_id=owner_id,
+                    discussion_id=discussion_id,
+                    kind="host_intro",
+                )
                 # 落库：PostgreSQL 仍存完整开场白（权威数据）；再推正式 message 事件
                 intro_msg = await repo.add_message(
                     discussion_id,
@@ -350,12 +398,27 @@ async def run_multi_discussion(
                                 timeout=15.0,
                             )
                             raw_text = _last_text(raw)
+                            await _record_call_tokens(
+                                prompt=prompt,
+                                output_text=raw_text,
+                                user_id=owner_id,
+                                discussion_id=discussion_id,
+                                kind="agent_think",
+                            )
                         else:
                             raw = await asyncio.wait_for(
                                 think_llm.ainvoke(prompt), timeout=15.0
                             )
                             raw_text = (
                                 raw.content if isinstance(raw.content, str) else str(raw)
+                            )
+                            await _record_call_tokens(
+                                prompt=prompt,
+                                output_text=raw_text,
+                                message=raw,
+                                user_id=owner_id,
+                                discussion_id=discussion_id,
+                                kind="agent_think",
                             )
                         parsed = _extract_decision(raw_text)
                         breaker.record_ok(key)
@@ -432,21 +495,30 @@ async def run_multi_discussion(
                 parts: list[str] = []
                 speak_key = str(speaker.agent_id)
                 graph = graphs.get(speaker.agent_id)
+                speak_usage = 0
+                chunk_base = {
+                    "temp_id": f"stream-{round_num}-{speaker.agent_id}",
+                    "discussion_id": str(discussion_id),
+                    "agent_id": str(speaker.agent_id),
+                    "agent_name": speaker.agent_name,
+                    "round": round_num,
+                }
                 try:
                     if graph is not None and not breaker.disabled(speak_key):
-                        async for text in _astream_graph(graph, speak_prompt, 10.0):
+                        usage_bag: list[int] = []
+                        async for text in _astream_graph(
+                            graph, speak_prompt, 10.0, usage_out=usage_bag
+                        ):
                             parts.append(text)
                             await publish_discussion_event(
                                 str(discussion_id),
                                 "agent_speak_chunk",
-                                {
-                                    "temp_id": f"stream-{round_num}-{speaker.agent_id}",
-                                    "agent_name": speaker.agent_name,
-                                    "content": text,
-                                },
+                                {**chunk_base, "content": text},
                             )
+                        speak_usage = sum(usage_bag)
                     else:
                         async for chunk in _astream_chunks(speak_llm, speak_prompt, 10.0):
+                            speak_usage = max(speak_usage, extract_token_count(chunk))
                             piece = chunk.content
                             text = piece if isinstance(piece, str) else str(piece or "")
                             if not text:
@@ -455,11 +527,7 @@ async def run_multi_discussion(
                             await publish_discussion_event(
                                 str(discussion_id),
                                 "agent_speak_chunk",
-                                {
-                                    "temp_id": f"stream-{round_num}-{speaker.agent_id}",
-                                    "agent_name": speaker.agent_name,
-                                    "content": text,
-                                },
+                                {**chunk_base, "content": text},
                             )
                     if parts:
                         breaker.record_ok(speak_key)
@@ -470,6 +538,17 @@ async def run_multi_discussion(
                     breaker.record_fail(speak_key)
 
                 speech_text = "".join(parts).strip()
+                await _record_call_tokens(
+                    prompt=speak_prompt,
+                    output_text=speech_text,
+                    tokens=speak_usage,
+                    user_id=owner_id,
+                    discussion_id=discussion_id,
+                    kind="agent_speak",
+                )
+                # 空发言不落库，避免串讨论/空白归属污染回放
+                if not speech_text:
+                    continue
                 # 落库：PostgreSQL 仍存完整发言（权威数据）；再推正式 message 事件
                 speak_msg = await repo.add_message(
                     discussion_id,
@@ -504,9 +583,11 @@ async def run_multi_discussion(
             )
 
             summary_parts: list[str] = []
+            summary_usage = 0
             # astream：异步迭代模型输出的增量文本（每包常是若干 token，代码里叫 chunk）
             # 用 _astream_chunks 做逐 token 10s 超时保护，超时则用已生成片段或兜底短总结
             async for chunk in _astream_chunks(host_llm, summary_prompt, 10.0):
+                summary_usage = max(summary_usage, extract_token_count(chunk))
                 piece = chunk.content
                 text = piece if isinstance(piece, str) else str(piece or "")
                 if not text:
@@ -517,6 +598,7 @@ async def run_multi_discussion(
                     "host_summary_chunk",
                     {
                         "temp_id": summary_temp_id,
+                        "discussion_id": str(discussion_id),
                         "content": text,
                     },
                 )
@@ -525,7 +607,14 @@ async def run_multi_discussion(
             if not summary_text:
                 # 总结阶段超时且未生成任何内容，给出兜底短总结，避免前端空白
                 summary_text = "本次讨论已结束，感谢各位嘉宾的精彩观点。"
-
+            await _record_call_tokens(
+                prompt=summary_prompt,
+                output_text=summary_text,
+                tokens=summary_usage,
+                user_id=owner_id,
+                discussion_id=discussion_id,
+                kind="host_summary",
+            )
             # 落库：PostgreSQL 仍存完整总结（权威数据）；再推正式 message 事件
             summary_msg = await repo.add_message(
                 discussion_id,
@@ -543,22 +632,29 @@ async def run_multi_discussion(
         except Exception as exc:
             logger.exception("multi discussion failed: %s", discussion_id)
             try:
-                # 用独立 session 记录 discussion.error 审计事件，
-                # 避免当前 session 因异常处于不可用状态导致审计丢失
-                async with async_session_factory() as audit_session:
-                    audit_repo = AuditRepository(audit_session)
+                # 独立 session：业务 session 可能已脏，审计与状态必须仍能落库
+                async with async_session_factory() as err_session:
+                    audit_repo = AuditRepository(err_session)
+                    err_repo = DiscussionRepository(err_session)
                     await audit_repo.record(
                         event_type="discussion.error",
                         level="P1",
+                        user_id=owner_id,
                         discussion_id=discussion_id,
                         payload={"error": str(exc), "topic": topic},
                     )
-                    await audit_session.commit()
+                    disc = await err_repo.find_by_id(discussion_id)
+                    if disc:
+                        await err_repo.update_status(disc, "error", ended_at=utcnow())
+                    else:
+                        await err_session.commit()
             except Exception:
                 logger.exception(
                     "failed to record discussion error audit: %s", discussion_id
                 )
-            disc = await repo.find_by_id(discussion_id)
-            if disc:
-                await repo.update_status(disc, "error", ended_at=utcnow())
             await _publish_status(discussion_id, "error")
+            await publish_discussion_event(
+                str(discussion_id),
+                "discussion_end",
+                {"status": "error", "discussion_id": str(discussion_id)},
+            )

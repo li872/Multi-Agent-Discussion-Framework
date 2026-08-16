@@ -17,4 +17,5 @@ def get_chat_llm(*, temperature: float = 0.7, timeout: float = 30) -> ChatOpenAI
         base_url=settings.llm_api_base or None,
         temperature=temperature,
         timeout=timeout,
+        stream_usage=True,
     )

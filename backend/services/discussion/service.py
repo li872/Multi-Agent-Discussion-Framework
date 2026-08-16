@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_engine.discussion.multi_orchestrator import AgentSpec, run_multi_discussion
 from agent_engine.llm import get_chat_llm
+from agent_engine.token_meter import extract_token_count, record_token_usage
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
 from backend.services.audit import AuditRepository
@@ -36,6 +37,45 @@ DEFAULT_TOPICS = [
     "技术债应该何时偿还",
 ]
 
+# 并发讨论：同一 discussion 只保留一个编排 Task，启动/结束受锁保护
+_active_orchestrators: dict[str, asyncio.Task] = {}
+_orch_lock = asyncio.Lock()
+
+
+async def _start_orchestrator(
+    *,
+    discussion_id: uuid.UUID,
+    topic: str,
+    duration: int,
+    agents: list[AgentSpec],
+    owner_id: uuid.UUID,
+    resume: bool = False,
+) -> None:
+    key = str(discussion_id)
+
+    async def _run() -> None:
+        try:
+            await run_multi_discussion(
+                discussion_id=discussion_id,
+                topic=topic,
+                duration=duration,
+                agents=agents,
+                resume=resume,
+                owner_id=owner_id,
+            )
+        finally:
+            async with _orch_lock:
+                cur = _active_orchestrators.get(key)
+                if cur is asyncio.current_task():
+                    _active_orchestrators.pop(key, None)
+
+    async with _orch_lock:
+        prev = _active_orchestrators.get(key)
+        if prev and not prev.done():
+            prev.cancel()
+        task = asyncio.create_task(_run())
+        _active_orchestrators[key] = task
+
 
 class DiscussionService:
     def __init__(self, session: AsyncSession):
@@ -59,9 +99,16 @@ class DiscussionService:
                 "2. 有观点张力，便于正反双方发言\n"
                 "3. 只输出主题本身，不要引号、编号或解释"
             )
-            raw = (await llm.ainvoke(prompt)).content
+            msg = await llm.ainvoke(prompt)
+            raw = msg.content
             topic = (raw if isinstance(raw, str) else str(raw)).strip()
             topic = topic.strip("「」『』\"'").splitlines()[0].strip()
+            tokens = extract_token_count(msg)
+            if tokens <= 0:
+                from agent_engine.token_meter import estimate_tokens_from_text
+
+                tokens = estimate_tokens_from_text(prompt, topic)
+            await record_token_usage(tokens=tokens, kind="generate_topic")
             if 4 <= len(topic) <= 80:
                 return TopicGenerateResponse(topic=topic, source="llm")
         except Exception:
@@ -159,13 +206,13 @@ class DiscussionService:
         )
         await self.session.commit()
 
-        asyncio.create_task(
-            run_multi_discussion(
-                discussion_id=disc.id,
-                topic=disc.topic,
-                duration=disc.duration,
-                agents=specs,
-            )
+        await _start_orchestrator(
+            discussion_id=disc.id,
+            topic=disc.topic,
+            duration=disc.duration,
+            agents=specs,
+            owner_id=uuid.UUID(owner_id),
+            resume=False,
         )
 
         disc = await self.repo.find_by_id(disc.id)
@@ -200,14 +247,13 @@ class DiscussionService:
             payload={"topic": disc.topic, "duration": disc.duration},
         )
         await self.session.commit()
-        asyncio.create_task(
-            run_multi_discussion(
-                discussion_id=disc.id,
-                topic=disc.topic,
-                duration=disc.duration,
-                agents=specs,
-                resume=True,
-            )
+        await _start_orchestrator(
+            discussion_id=disc.id,
+            topic=disc.topic,
+            duration=disc.duration,
+            agents=specs,
+            owner_id=uuid.UUID(owner_id),
+            resume=True,
         )
 
         disc = await self.repo.find_by_id(disc.id)

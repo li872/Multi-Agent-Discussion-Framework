@@ -225,7 +225,20 @@ class CharacterService:
                 "请推荐 6 位适合作为 AI 圆桌讨论角色的历史/公众人物，"
                 "涵盖科技、商业、哲学、科学等领域。只返回 6 个人名，每行一个，不要解释。"
             )
-            raw = (await llm.ainvoke(prompt)).content
+            msg = await llm.ainvoke(prompt)
+            raw = msg.content
+            from agent_engine.token_meter import (
+                estimate_tokens_from_text,
+                extract_token_count,
+                record_token_usage,
+            )
+
+            tokens = extract_token_count(msg) or estimate_tokens_from_text(
+                prompt, raw if isinstance(raw, str) else str(raw)
+            )
+            await record_token_usage(
+                tokens=tokens, user_id=uid, kind="recommendations"
+            )
             if isinstance(raw, str):
                 for line in raw.splitlines():
                     name = line.strip().strip("-*1234567890. ").strip()

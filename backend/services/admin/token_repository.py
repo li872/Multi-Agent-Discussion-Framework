@@ -13,6 +13,29 @@ class TokenUsageRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def record(
+        self,
+        *,
+        tokens: int,
+        user_id: uuid.UUID | str | None = None,
+        discussion_id: uuid.UUID | str | None = None,
+        kind: str = "llm",
+    ) -> TokenUsage:
+        def _uuid(v: uuid.UUID | str | None) -> uuid.UUID | None:
+            if v is None:
+                return None
+            return v if isinstance(v, uuid.UUID) else uuid.UUID(str(v))
+
+        row = TokenUsage(
+            user_id=_uuid(user_id),
+            discussion_id=_uuid(discussion_id),
+            tokens=max(0, int(tokens)),
+            kind=kind or "llm",
+        )
+        self.session.add(row)
+        await self.session.flush()
+        return row
+
     async def sum_tokens(
         self,
         *,
