@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from audit_backend.core.responses import Result
+from audit_backend.services.admin_proxy.router import router as admin_proxy_router
 from audit_backend.services.auth.router import router as auth_router
 from audit_backend.services.events.router import router as events_router
 
@@ -15,6 +16,7 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(events_router)
+app.include_router(admin_proxy_router)
 
 
 @app.get("/api/v1/audit/health")

@@ -74,6 +74,34 @@ class DiscussionRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all()), total
 
+    async def list_all(
+        self, page: int, page_size: int, search: str | None = None
+    ) -> tuple[list[Discussion], int]:
+        base = select(Discussion).where(Discussion.deleted_at.is_(None))
+        if search:
+            base = base.where(
+                or_(
+                    Discussion.topic.ilike(f"%{search}%"),
+                    Discussion.status.ilike(f"%{search}%"),
+                )
+            )
+        total = (
+            await self.session.execute(select(func.count()).select_from(base.subquery()))
+        ).scalar_one()
+        stmt = (
+            base.order_by(Discussion.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def count_active(self) -> int:
+        stmt = select(func.count()).select_from(Discussion).where(
+            Discussion.deleted_at.is_(None)
+        )
+        return (await self.session.execute(stmt)).scalar_one()
+
     async def get_agents(self, discussion_id: uuid.UUID) -> list[DiscussionAgent]:
         stmt = select(DiscussionAgent).where(
             DiscussionAgent.deleted_at.is_(None),
