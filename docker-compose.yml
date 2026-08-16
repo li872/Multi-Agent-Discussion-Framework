@@ -29,5 +29,37 @@ services:
       timeout: 3s
       retries: 5
 
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: madf-backend
+    env_file:
+      - .env
+    environment:
+      # 容器内通过服务名访问，覆盖 .env 里的 localhost
+      DB_HOST: postgres
+      REDIS_HOST: redis
+    ports:
+      - "8000:8000"
+    volumes:
+      - skills:/app/skills
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: madf-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
 volumes:
   pg_data:
+  skills:
