@@ -321,3 +321,42 @@ code {
   color: var(--text-h);
   resize: vertical;
 }
+
+.skill-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+  text-align: left;
+  margin-top: 16px;
+}
+
+.skill-tree ul {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+
+.skill-tree button {
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-h);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.skill-tree button.active,
+.skill-tree button:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.skill-monaco {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
