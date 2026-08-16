@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { auditApi, formatTs } from '../api/client'
 import type { ApiResult, PageData } from '../api/client'
 
@@ -11,29 +12,30 @@ type UserRow = {
 }
 
 export default function Users() {
-  const [items, setItems] = useState<UserRow[]>([])
-  const [total, setTotal] = useState(0)
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
+  const [applied, setApplied] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
 
-  async function load(q = search) {
-    const res = await auditApi.get<ApiResult<PageData<UserRow>>>('/admin/users', {
-      params: { page: 1, page_size: 50, search: q || undefined },
-    })
-    setItems(res.data.data?.items || [])
-    setTotal(res.data.data?.total || 0)
-  }
+  const list = useQuery({
+    queryKey: ['admin', 'users', applied],
+    queryFn: async () => {
+      const res = await auditApi.get<ApiResult<PageData<UserRow>>>('/admin/users', {
+        params: { page: 1, page_size: 50, search: applied || undefined },
+      })
+      return res.data.data
+    },
+  })
 
-  useEffect(() => {
-    load('').catch(() => setError('加载用户失败'))
-  }, [])
+  const items = list.data?.items || []
+  const total = list.data?.total || 0
 
   async function setStatus(id: string, enabled: boolean) {
     setBusy(id)
     try {
       await auditApi.put(`/admin/users/${id}/status`, { enabled })
-      await load()
+      qc.invalidateQueries({ queryKey: ['admin', 'users'] })
     } catch {
       setError('更新状态失败')
     } finally {
@@ -63,18 +65,21 @@ export default function Users() {
           placeholder="搜索用户名"
           onChange={(e) => setSearch(e.target.value)}
         />
-        <button type="button" onClick={() => load().catch(() => setError('加载用户失败'))}>
+        <button type="button" onClick={() => setApplied(search)}>
           搜索
         </button>
       </div>
       <p className="muted">共 {total} 人</p>
-      {error && <p className="error">{error}</p>}
+      {(error || list.isError) && <p className="error">{error || '加载用户失败'}</p>}
       <ul className="checklist">
         {items.map((u) => (
           <li key={u.id}>
             <strong>{u.username}</strong>
             <span className={`status-pill ${u.status}`}>{u.status}</span>
-            <span className="muted"> · {u.phone || '无手机号'} · {formatTs(u.created_at)}</span>
+            <span className="muted">
+              {' '}
+              · {u.phone || '无手机号'} · {formatTs(u.created_at)}
+            </span>
             <div className="row">
               {u.status === 'enabled' ? (
                 <button type="button" disabled={busy === u.id} onClick={() => setStatus(u.id, false)}>
@@ -92,7 +97,7 @@ export default function Users() {
           </li>
         ))}
       </ul>
-      {items.length === 0 && !error && <p>暂无用户</p>}
+      {items.length === 0 && !error && !list.isError && <p>暂无用户</p>}
     </div>
   )
 }
