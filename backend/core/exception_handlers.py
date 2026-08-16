@@ -9,7 +9,12 @@ from backend.core.responses import Result
 def _http_status(error_code: ErrorCode) -> int:
     if error_code == ErrorCode.UNAUTHORIZED:
         return 401
-    if error_code in (ErrorCode.NOT_FOUND, ErrorCode.USER_NOT_FOUND):
+    if error_code in (
+        ErrorCode.NOT_FOUND,
+        ErrorCode.USER_NOT_FOUND,
+        ErrorCode.SKILL_NOT_FOUND,
+        ErrorCode.DISCUSSION_NOT_FOUND,
+    ):
         return 404
     if error_code in (ErrorCode.USERNAME_EXISTS, ErrorCode.PHONE_EXISTS):
         return 409

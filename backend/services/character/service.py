@@ -81,15 +81,16 @@ class CharacterService:
         if existing:
             raise BusinessException(ErrorCode.SKILL_NAME_EXISTS)
 
-        await self.fm.create_skill_dir(owner_id, skill_name)
+        file_path = f"{owner_id}/{skill_name}"
+        await self.fm.create_skill_dir(file_path)
         await self.fm.write_file(
-            owner_id, skill_name, "SKILL.md", f"# {name}\n\n> {description}\n"
+            file_path, "SKILL.md", f"# {name}\n\n> {description}\n"
         )
         skill = await self.repo.create(
             owner_id=uid,
             name=skill_name,
             description=description,
-            file_path=f"{owner_id}/{skill_name}",
+            file_path=file_path,
             tags=tags,
             is_public=is_public,
             status="ready",
@@ -123,10 +124,10 @@ class CharacterService:
         if existing:
             raise BusinessException(ErrorCode.SKILL_NAME_EXISTS)
 
-        await self.fm.create_skill_dir(owner_id, skill_name)
+        file_path = f"{owner_id}/{skill_name}"
+        await self.fm.create_skill_dir(file_path)
         await self.fm.write_file(
-            owner_id,
-            skill_name,
+            file_path,
             "SKILL.md",
             f"# {display_name}\n\n> 生成中…\n",
         )
@@ -135,7 +136,7 @@ class CharacterService:
             owner_id=uid,
             name=skill_name,
             description=description or f"正在生成 {display_name}",
-            file_path=f"{owner_id}/{skill_name}",
+            file_path=file_path,
             tags=[],
             is_public=False,
             status="generating",
@@ -294,11 +295,12 @@ class CharacterService:
             raise BusinessException(ErrorCode.SKILL_NAME_EXISTS, "Too many copies")
 
         try:
-            await self.fm.copy_skill_dir(
-                str(src.owner_id), src.name, user_id, dst_name
-            )
+            await self.fm.copy_skill_dir(src.file_path, f"{user_id}/{dst_name}")
         except FileNotFoundError:
-            raise BusinessException(ErrorCode.SKILL_NOT_FOUND, "Skill files missing")
+            raise BusinessException(
+                ErrorCode.SKILL_NOT_FOUND,
+                f"Skill files missing on disk: {src.file_path}",
+            )
 
         skill = await self.repo.create(
             owner_id=uid,
@@ -360,7 +362,7 @@ class CharacterService:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND)
         if str(skill.owner_id) != owner_id:
             raise BusinessException(ErrorCode.FORBIDDEN)
-        await self.fm.delete_skill_dir(str(skill.owner_id), skill.name)
+        await self.fm.delete_skill_dir(skill.file_path)
         await self.repo.soft_delete(skill)
         # 删除是 P1 生命周期事件，保留被删角色名和 owner，便于追溯
         await self.audit.record(
@@ -379,7 +381,13 @@ class CharacterService:
         if not skill:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND)
         self._ensure_can_read(skill, user_id)
-        return await self.fm.list_files(str(skill.owner_id), skill.name)
+        try:
+            return await self.fm.list_files(skill.file_path)
+        except FileNotFoundError:
+            raise BusinessException(
+                ErrorCode.SKILL_NOT_FOUND,
+                f"Skill files missing on disk: {skill.file_path}",
+            )
 
     async def read_file(self, skill_id: str, path: str, user_id: str) -> str:
         skill = await self.repo.find_by_id(uuid.UUID(skill_id))
@@ -387,16 +395,19 @@ class CharacterService:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND)
         self._ensure_can_read(skill, user_id)
         try:
-            return await self.fm.read_file(str(skill.owner_id), skill.name, path)
+            return await self.fm.read_file(skill.file_path, path)
         except FileNotFoundError:
-            raise BusinessException(ErrorCode.SKILL_NOT_FOUND, f"File not found: {path}")
+            raise BusinessException(
+                ErrorCode.SKILL_NOT_FOUND,
+                f"Skill files missing on disk: {skill.file_path}",
+            )
 
     async def write_file(self, skill_id: str, path: str, content: str, user_id: str) -> None:
         skill = await self.repo.find_by_id(uuid.UUID(skill_id))
         if not skill:
             raise BusinessException(ErrorCode.SKILL_NOT_FOUND)
         self._ensure_can_write(skill, user_id)
-        await self.fm.write_file(str(skill.owner_id), skill.name, path, content)
+        await self.fm.write_file(skill.file_path, path, content)
         # 文件写入是 P2 数据修改事件，记录被修改 skill 和文件路径，便于内容变更追溯
         await self.audit.record(
             event_type="skill.file_write",
@@ -439,9 +450,7 @@ class CharacterService:
         # 读磁盘 SKILL.md 提取引用语；文件缺失时退回数据库 description
         quotes: list[str] = []
         try:
-            content = await self.fm.read_file(
-                str(skill.owner_id), skill.name, "SKILL.md"
-            )
+            content = await self.fm.read_file(skill.file_path, "SKILL.md")
             quotes = self._extract_quotes(content)
         except Exception:
             quotes = []

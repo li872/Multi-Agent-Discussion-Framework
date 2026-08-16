@@ -22,4 +22,5 @@ def test_should_map_http_status_for_auth_and_not_found():
     assert _http_status(ErrorCode.UNAUTHORIZED) == 401
     assert _http_status(ErrorCode.USER_NOT_FOUND) == 404
     assert _http_status(ErrorCode.USERNAME_EXISTS) == 409
+    assert _http_status(ErrorCode.SKILL_NOT_FOUND) == 404
     assert _http_status(ErrorCode.WRONG_PASSWORD) == 400

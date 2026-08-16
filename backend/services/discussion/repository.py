@@ -176,10 +176,31 @@ class DiscussionRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def list_messages_after(
+    async def count_messages_after(
         self, discussion_id: uuid.UUID, after: datetime
+    ) -> int:
+        stmt = select(func.count()).select_from(DiscussionMessage).where(
+            DiscussionMessage.deleted_at.is_(None),
+            DiscussionMessage.discussion_id == discussion_id,
+            DiscussionMessage.created_at > after,
+        )
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one())
+
+    async def list_messages_after(
+        self,
+        discussion_id: uuid.UUID,
+        after: datetime,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        newest_first: bool = False,
     ) -> list[DiscussionMessage]:
-        # SSE 重连追赶：查询某个时间戳之后的消息（断点用 created_at，不用 id，避免并发顺序差异）
+        order = (
+            DiscussionMessage.created_at.desc()
+            if newest_first
+            else DiscussionMessage.created_at.asc()
+        )
         stmt = (
             select(DiscussionMessage)
             .where(
@@ -187,10 +208,13 @@ class DiscussionRepository:
                 DiscussionMessage.discussion_id == discussion_id,
                 DiscussionMessage.created_at > after,
             )
-            .order_by(
-                DiscussionMessage.round_number.asc(),
-                DiscussionMessage.created_at.asc(),
-            )
+            .order_by(order)
+            .offset(offset)
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        rows = list(result.scalars().all())
+        if newest_first:
+            rows.reverse()
+        return rows
