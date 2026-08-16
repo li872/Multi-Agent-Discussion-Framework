@@ -11,6 +11,8 @@ import time
 import uuid
 from dataclasses import dataclass
 
+from agent_engine.discussion.circuit_breaker import CircuitBreaker
+from agent_engine.discussion.factory import create_roundtable_agent
 from agent_engine.llm import get_chat_llm
 from backend.deps import async_session_factory
 from backend.models.base import utcnow
@@ -22,7 +24,7 @@ from backend.services.realtime.publisher import publish_discussion_event
 
 logger = logging.getLogger(__name__)
 
-MAX_ROUNDS = 3  # 学习阶段上限，避免一次烧太多 token
+MAX_ROUNDS = 12  # 安全上限；实际还会被 discussion.duration 截断
 
 
 async def _publish_message(discussion_id: uuid.UUID, msg: DiscussionMessage) -> None:
@@ -95,6 +97,57 @@ def _extract_decision(text: str) -> dict:
     return {"decision": decision, "confidence": conf, "reasoning": reasoning}
 
 
+def _last_text(result) -> str:
+    msgs = result.get("messages") if isinstance(result, dict) else None
+    if not msgs:
+        return ""
+    content = getattr(msgs[-1], "content", msgs[-1])
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        bits: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                bits.append(part)
+            elif isinstance(part, dict):
+                bits.append(str(part.get("text") or ""))
+        return "".join(bits)
+    return str(content or "")
+
+
+async def _astream_graph(agent, prompt: str, idle: float = 10.0):
+    # deepagent 真流式：听 on_chat_model_stream；idle 秒无新 token 则停
+    last = time.monotonic()
+    agen = agent.astream_events(
+        {"messages": [{"role": "user", "content": prompt}]},
+        version="v2",
+    )
+    try:
+        while True:
+            try:
+                ev = await asyncio.wait_for(agen.__anext__(), timeout=idle)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                logger.warning("graph stream idle timeout after %.1fs", idle)
+                break
+            if ev.get("event") != "on_chat_model_stream":
+                continue
+            chunk = (ev.get("data") or {}).get("chunk")
+            piece = getattr(chunk, "content", None) if chunk is not None else None
+            text = piece if isinstance(piece, str) else str(piece or "")
+            if not text:
+                continue
+            last = time.monotonic()
+            yield text
+            if time.monotonic() - last > idle:
+                break
+    finally:
+        aclose = getattr(agen, "aclose", None)
+        if callable(aclose):
+            await aclose()
+
+
 async def _astream_chunks(
     llm, prompt: str, per_chunk_timeout: float = 10.0
 ):
@@ -159,6 +212,16 @@ async def run_multi_discussion(
         try:
             for a in agents:
                 a.excerpt = _read_skill_excerpt(a.skill_file_path)
+
+            graphs: dict[uuid.UUID, object] = {}
+            breaker = CircuitBreaker(threshold=3)
+            for a in agents:
+                skill_dir = SKILLS_ROOT / a.skill_file_path
+                try:
+                    graphs[a.agent_id], _ = create_roundtable_agent(str(skill_dir))
+                except Exception:
+                    logger.exception("roundtable agent create failed: %s", a.agent_name)
+                    graphs[a.agent_id] = None
 
             await repo.update_status(disc, "running", started_at=utcnow())
             await _publish_status(discussion_id, "running")
@@ -262,26 +325,43 @@ async def run_multi_discussion(
                 history = _history_text(transcript)
 
                 async def _think_one(agent: AgentSpec) -> Decision:
+                    key = str(agent.agent_id)
+                    if breaker.disabled(key):
+                        return Decision(
+                            agent_id=agent.agent_id,
+                            agent_name=agent.agent_name,
+                            decision="wait",
+                            confidence=0.0,
+                            reasoning="熔断跳过",
+                        )
                     prompt = (
-                        f"你就是{agent.agent_name}本人，正在参加圆桌讨论。\n"
                         f"主题：{topic}\n"
-                        f"人设节选：\n{agent.excerpt}\n\n"
                         f"当前讨论记录：\n{history}\n\n"
                         f"请判断这一轮要不要发言。只输出 JSON，不要其他文字：\n"
                         f'{{"decision":"speak"|"wait","confidence":0.00到1.00两位小数,"reasoning":"10字内理由"}}'
                     )
+                    graph = graphs.get(agent.agent_id)
                     try:
-                        # 决策阶段加 15s 总超时：
-                        # 模型卡顿或网络异常时直接降级为 wait，避免整轮被拖死
-                        raw = await asyncio.wait_for(
-                            think_llm.ainvoke(prompt), timeout=15.0
-                        )
-                        raw_text = raw.content if isinstance(raw.content, str) else str(raw)
+                        if graph is not None:
+                            raw = await asyncio.wait_for(
+                                graph.ainvoke(
+                                    {"messages": [{"role": "user", "content": prompt}]}
+                                ),
+                                timeout=15.0,
+                            )
+                            raw_text = _last_text(raw)
+                        else:
+                            raw = await asyncio.wait_for(
+                                think_llm.ainvoke(prompt), timeout=15.0
+                            )
+                            raw_text = (
+                                raw.content if isinstance(raw.content, str) else str(raw)
+                            )
                         parsed = _extract_decision(raw_text)
+                        breaker.record_ok(key)
                     except asyncio.TimeoutError:
-                        logger.warning(
-                            "think timeout after 15s: %s", agent.agent_name
-                        )
+                        logger.warning("think timeout after 15s: %s", agent.agent_name)
+                        breaker.record_fail(key)
                         parsed = {
                             "decision": "wait",
                             "confidence": 0.0,
@@ -289,6 +369,7 @@ async def run_multi_discussion(
                         }
                     except Exception:
                         logger.exception("think failed: %s", agent.agent_name)
+                        breaker.record_fail(key)
                         parsed = {
                             "decision": "wait",
                             "confidence": 0.0,
@@ -325,9 +406,7 @@ async def run_multi_discussion(
                 speaker = next(a for a in agents if a.agent_id == winner.agent_id)
 
                 speak_prompt = (
-                    f"你就是{speaker.agent_name}本人。\n"
                     f"主题：{topic}\n"
-                    f"人设节选：\n{speaker.excerpt}\n\n"
                     f"讨论记录：\n{history}\n\n"
                     f"{'（全员沉默，请你主动打开局面）' if forced else ''}"
                     f"请用中文发言（120-220字）。不要提AI，不要说自己在扮演。"
@@ -351,23 +430,44 @@ async def run_multi_discussion(
                 )
 
                 parts: list[str] = []
-                # astream：异步迭代模型输出的增量文本（每包常是若干 token，代码里叫 chunk）
-                # 用 _astream_chunks 做逐 token 10s 超时保护，超时仍保留已生成的片段
-                async for chunk in _astream_chunks(speak_llm, speak_prompt, 10.0):
-                    piece = chunk.content
-                    text = piece if isinstance(piece, str) else str(piece or "")
-                    if not text:
-                        continue
-                    parts.append(text)
-                    await publish_discussion_event(
-                        str(discussion_id),
-                        "agent_speak_chunk",
-                        {
-                            "temp_id": f"stream-{round_num}-{speaker.agent_id}",
-                            "agent_name": speaker.agent_name,
-                            "content": text,
-                        },
-                    )
+                speak_key = str(speaker.agent_id)
+                graph = graphs.get(speaker.agent_id)
+                try:
+                    if graph is not None and not breaker.disabled(speak_key):
+                        async for text in _astream_graph(graph, speak_prompt, 10.0):
+                            parts.append(text)
+                            await publish_discussion_event(
+                                str(discussion_id),
+                                "agent_speak_chunk",
+                                {
+                                    "temp_id": f"stream-{round_num}-{speaker.agent_id}",
+                                    "agent_name": speaker.agent_name,
+                                    "content": text,
+                                },
+                            )
+                    else:
+                        async for chunk in _astream_chunks(speak_llm, speak_prompt, 10.0):
+                            piece = chunk.content
+                            text = piece if isinstance(piece, str) else str(piece or "")
+                            if not text:
+                                continue
+                            parts.append(text)
+                            await publish_discussion_event(
+                                str(discussion_id),
+                                "agent_speak_chunk",
+                                {
+                                    "temp_id": f"stream-{round_num}-{speaker.agent_id}",
+                                    "agent_name": speaker.agent_name,
+                                    "content": text,
+                                },
+                            )
+                    if parts:
+                        breaker.record_ok(speak_key)
+                    else:
+                        breaker.record_fail(speak_key)
+                except Exception:
+                    logger.exception("speak stream failed: %s", speaker.agent_name)
+                    breaker.record_fail(speak_key)
 
                 speech_text = "".join(parts).strip()
                 # 落库：PostgreSQL 仍存完整发言（权威数据）；再推正式 message 事件
