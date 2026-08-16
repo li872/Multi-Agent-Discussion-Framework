@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
-import LogoutButton from '../components/LogoutButton'
 
 type Stats = {
   characters: number
@@ -29,11 +28,6 @@ export default function Home() {
 
   return (
     <div className="page">
-      <div className="row">
-        <span>MADF</span>
-        <Link to="/profile">个人中心</Link>
-        <LogoutButton />
-      </div>
       <h1>多智能体圆桌讨论</h1>
       {error && <p className="error">{error}</p>}
 
@@ -52,13 +46,13 @@ export default function Home() {
 
       <div className="row" style={{ marginTop: 32, justifyContent: 'center' }}>
         <Link to="/discussions/new">
-          <button>新建讨论</button>
+          <button type="button">新建讨论</button>
         </Link>
         <Link to="/generate" style={{ marginLeft: 12 }}>
-          <button>AI 生成角色</button>
+          <button type="button">AI 生成角色</button>
         </Link>
         <Link to="/gallery" style={{ marginLeft: 12 }}>
-          <button>公开画廊</button>
+          <button type="button">公开画廊</button>
         </Link>
       </div>
     </div>

@@ -12,7 +12,6 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ApiResult } from '../api/client'
-import LogoutButton from '../components/LogoutButton'
 
 type ProgressEvent = {
   level: 'main' | 'sub' | 'tool' | 'done' | 'error'
@@ -155,11 +154,6 @@ export default function GenerateSkill() {
 
   return (
     <div className="page">
-      <div className="row">
-        <Link to="/">← 首页</Link>
-        <Link to="/characters">我的角色</Link>
-        <LogoutButton />
-      </div>
       <h1>AI 生成角色 Skill（完整 Nuwa 管线）</h1>
 
       {recommendations.length > 0 && (
