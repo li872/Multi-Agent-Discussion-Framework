@@ -1,0 +1,20 @@
+# 审计后端容器：复用同一份 Python 依赖，入口换成 8001
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+COPY backend ./backend
+COPY agent_engine ./agent_engine
+COPY audit_backend ./audit_backend
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
+
+RUN pip install --no-cache-dir -e "."
+
+COPY audit_entrypoint.sh /audit_entrypoint.sh
+RUN chmod +x /audit_entrypoint.sh
+
+EXPOSE 8001
+
+ENTRYPOINT ["/audit_entrypoint.sh"]
