@@ -13,6 +13,13 @@ class UserLoginRequest(BaseModel):
     password: str = Field(min_length=6, max_length=128)
 
 
+class UserUpdateRequest(BaseModel):
+    username: str | None = Field(default=None, min_length=2, max_length=64)
+    phone: str | None = Field(default=None, min_length=11, max_length=20)
+    old_password: str | None = Field(default=None, min_length=6, max_length=128)
+    new_password: str | None = Field(default=None, min_length=6, max_length=128)
+
+
 class TokenResponse(BaseModel):
     token: str
     token_type: str = "bearer"

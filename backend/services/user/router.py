@@ -7,6 +7,7 @@ from backend.services.user.schemas import (
     UserLoginRequest,
     UserRegisterRequest,
     UserResponse,
+    UserUpdateRequest,
 )
 from backend.services.user.service import UserService, get_user_service
 
@@ -43,4 +44,14 @@ async def get_me(
     svc: UserService = Depends(get_user_service),
 ) -> Result[UserResponse]:
     user = await svc.get_me(user_id)
+    return Result.ok(user)
+
+
+@router.put("/me")
+async def update_me(
+    req: UserUpdateRequest,
+    user_id: str = Depends(require_user),
+    svc: UserService = Depends(get_user_service),
+) -> Result[UserResponse]:
+    user = await svc.update_me(user_id, req)
     return Result.ok(user)

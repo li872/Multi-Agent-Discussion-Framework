@@ -11,7 +11,7 @@ from backend.config import settings
 from backend.core.exceptions import BusinessException, ErrorCode
 from backend.deps import get_db
 from backend.services.user.repository import UserRepository
-from backend.services.user.schemas import TokenResponse, UserResponse
+from backend.services.user.schemas import TokenResponse, UserResponse, UserUpdateRequest
 
 
 class UserService:
@@ -65,6 +65,49 @@ class UserService:
         user = await self.repo.find_by_id(uuid.UUID(user_id))
         if not user:
             raise BusinessException(ErrorCode.USER_NOT_FOUND)
+        return self._to_response(user)
+
+    async def update_me(self, user_id: str, req: UserUpdateRequest) -> UserResponse:
+        # 更新当前用户信息：用户名、手机号、密码（旧密码校验）
+        user = await self.repo.find_by_id(uuid.UUID(user_id))
+        if not user:
+            raise BusinessException(ErrorCode.USER_NOT_FOUND)
+
+        changed = False
+
+        if req.username is not None and req.username != user.username:
+            existing = await self.repo.find_by_username(req.username)
+            if existing and str(existing.id) != user_id:
+                raise BusinessException(
+                    ErrorCode.USERNAME_EXISTS, "Username already taken"
+                )
+            user.username = req.username
+            changed = True
+
+        if req.phone is not None and req.phone != user.phone:
+            existing_phone = await self.repo.find_by_phone(req.phone)
+            if existing_phone and str(existing_phone.id) != user_id:
+                raise BusinessException(
+                    ErrorCode.PHONE_EXISTS, "Phone already registered"
+                )
+            user.phone = req.phone
+            changed = True
+
+        if req.new_password:
+            if not req.old_password:
+                raise BusinessException(
+                    ErrorCode.INVALID_PARAMS, "Old password required to change password"
+                )
+            if not self.pwd_context.verify(req.old_password, user.password_hash):
+                raise BusinessException(
+                    ErrorCode.WRONG_PASSWORD, "Incorrect old password"
+                )
+            user.password_hash = self.pwd_context.hash(req.new_password)
+            changed = True
+
+        if changed:
+            user = await self.repo.update(user)
+
         return self._to_response(user)
 
     def _issue_token(self, user_id: uuid.UUID) -> TokenResponse:

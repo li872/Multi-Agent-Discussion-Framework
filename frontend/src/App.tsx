@@ -7,6 +7,7 @@ import Discussions from './pages/Discussions'
 import Register from './pages/Register'
 import CharacterSkill from './pages/CharacterSkill'
 import Gallery from './pages/Gallery'
+import Profile from './pages/Profile'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token')
@@ -65,6 +66,14 @@ export default function App() {
           element={
             <RequireAuth>
               <Gallery />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <RequireAuth>
+              <Profile />
             </RequireAuth>
           }
         />
