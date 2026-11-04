@@ -44,6 +44,11 @@ def init_db() -> None:
         )
         cur = conn.execute("SELECT COUNT(*) AS c FROM audit_admin_users")
         if cur.fetchone()["c"] == 0:
+            if not settings.audit_admin_username or not settings.audit_admin_password:
+                raise RuntimeError(
+                    "AUDIT_ADMIN_USERNAME 和 AUDIT_ADMIN_PASSWORD 必须在 .env 中显式设置，"
+                    "用于种子化首个审计管理员"
+                )
             conn.execute(
                 "INSERT INTO audit_admin_users (id, username, password_hash, created_at) VALUES (?,?,?,?)",
                 (
@@ -78,11 +83,6 @@ def verify_admin(username: str, password: str) -> dict | None:
     row = find_admin(username)
     if row and pwd.verify(password, row["password_hash"]):
         return {"id": row["id"], "username": row["username"]}
-    if (
-        username == settings.audit_admin_username
-        and password == settings.audit_admin_password
-    ):
-        return {"id": "env", "username": username}
     return None
 
 

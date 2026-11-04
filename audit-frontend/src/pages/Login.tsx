@@ -15,7 +15,7 @@ export default function Login() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const [username, setUsername] = useState('admin')
-  const [password, setPassword] = useState('audit123')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 

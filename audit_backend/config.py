@@ -12,8 +12,12 @@ class AuditSettings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 240
 
-    audit_admin_username: str = "admin"
-    audit_admin_password: str = "audit123"
+    # 首个管理员由 init_db 按这两个值种子化（bcrypt 入库），必须显式配置
+    audit_admin_username: str = ""
+    audit_admin_password: str = ""
+
+    # 跨域来源，逗号分隔；默认空 = 只允许同源（nginx 反代架构下无需跨域）
+    audit_cors_origins: str = ""
 
     # 主系统管理接口，与 backend.config.admin_token 使用同一把钥匙
     main_api_base: str = "http://localhost:8000"
